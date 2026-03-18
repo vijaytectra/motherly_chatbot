@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Motherly — Chat with Mothrly Assistant</title>
+    <meta name="description" content="Chat with Mothrly Assistant, your friendly maternal healthcare assistant." />
+
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+    <!-- Material Design Date/Time Picker (md-date-time-picker) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/md-date-time-picker@2.3.0/dist/css/themes/light/red/mdDateTimePicker.min.css" />
+
+    <link rel="stylesheet" href="/static/mothrly.css?v=10" />
+</head>
+
+<body>
+    <!-- Optional page content (your site content goes here when embedding) -->
+    <div class="page-content" id="page-content"></div>
+
+    <!-- Floating chat UI: tooltip + button + panel -->
+    <div class="floating-chat">
+        <!-- Tooltip: welcomes user and invites them to book — fades in, hides after 7s or on first open -->
+        <div id="chat-tooltip" class="chat-tooltip" aria-hidden="true">
+            <div class="chat-tooltip-inner">
+                <p class="chat-tooltip-title">Welcome to Mothrly!</p>
+                <p class="chat-tooltip-cta">Use Mothrly Assistant to book services immediately.</p>
+            </div>
+            <div class="chat-tooltip-arrow" aria-hidden="true"></div>
+        </div>
+
+        <!-- Floating chat button: red, white chat icon, bottom-right -->
+        <button type="button" id="chat-fab" class="chat-fab" title="Open Mothrly Assistant — book services now" aria-label="Open chat">
+            <svg class="chat-fab-icon" xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+        </button>
+
+        <!-- Chat panel: slides up from bottom-right when open -->
+        <div class="chat-wrapper chat-panel chat-panel--closed" id="chat-panel">
+            <header class="chat-header">
+                <div class="header-left" style="display: flex; align-items: center; gap: 8px;">
+                    <div class="header-avatar">
+                        <img src="/static/motherly_logo.png?v=2" alt="Mothrly"
+                            style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
+                        <span class="online-ring"></span>
+                    </div>
+                </div>
+                <div class="header-center">
+                    <h1>Mothrly Assistant</h1>
+                    <p class="subtitle" id="step-label">Your maternal care assistant</p>
+                </div>
+                <div class="header-actions" style="display:flex; align-items:center; gap:6px;">
+                    <button id="btn-reset" title="Reset chat" onclick="resetChat()"
+                        style="background:rgba(255,255,255,0.18); border:none; color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:50%; transition:background 0.2s;"
+                        onmouseover="this.style.background='rgba(255,255,255,0.32)'"
+                        onmouseout="this.style.background='rgba(255,255,255,0.18)'">
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="1 4 1 10 7 10"></polyline>
+                            <path d="M3.51 15a9 9 0 1 0 .49-4"></path>
+                        </svg>
+                    </button>
+                    <button id="btn-minimize" title="Minimize chat" onclick="minimizeChat()"
+                        style="background:rgba(255,255,255,0.18); border:none; color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:50%; transition:background 0.2s;"
+                        onmouseover="this.style.background='rgba(255,255,255,0.32)'"
+                        onmouseout="this.style.background='rgba(255,255,255,0.18)'">
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                    </button>
+                    <button type="button" id="btn-close" title="Close chat" onclick="closeChat()"
+                        style="background:rgba(255,255,255,0.18); border:none; color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:50%; transition:background 0.2s;"
+                        onmouseover="this.style.background='rgba(255,255,255,0.32)'"
+                        onmouseout="this.style.background='rgba(255,255,255,0.18)'">
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                </div>
+            </header>
+
+            <div class="progress-track">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+
+            <main class="chat-messages" id="chat-messages">
+                <!-- Messages and dynamic chips injected here -->
+            </main>
+
+            <div class="typing-indicator" id="typing-indicator">
+                <div class="typing-avatar">M</div>
+                <div class="typing-bubble">
+                    <span></span><span></span><span></span>
+                </div>
+            </div>
+
+            <footer class="chat-input-bar">
+                <div class="input-wrapper">
+                    <input type="text" id="user-input" class="chat-input" placeholder="Start chatting..." autocomplete="off" />
+                    <button class="icon-button mic-button" aria-label="Voice input" title="Voice input">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                            <line x1="12" y1="19" x2="12" y2="22"></line>
+                        </svg>
+                    </button>
+                    <button id="send-btn" class="icon-button send-button" aria-label="Send message">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                        </svg>
+                    </button>
+                </div>
+            </footer>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/moment@2.30.1/min/moment.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/md-date-time-picker@2.3.0/dist/js/mdDateTimePicker.min.js"></script>
+    <script src="/static/script.js?v=25"></script>
+</body>
+
+</html>

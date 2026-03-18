@@ -1,0 +1,1256 @@
+/* ================================================================
+   Motherly Chat — Conversational Assistant Redesign v6
+   Modern, responsive, step-by-step layout
+   ================================================================ */
+
+/* ── Reset & base ─────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    /* Brand */
+    --primary: #C22627;
+    --primary-dark: #9B1C1C;
+    --primary-light: #F5CCCC;
+
+    /* Neutral */
+    --bg: #F9FAFB;
+    --surface: #FFFFFF;
+    --border: #E5E7EB;
+    --text-primary: #1F2937;
+    --text-secondary: #4B5563;
+    --text-muted: #9CA3AF;
+    --bg-chip: #F3F4F6;
+    --hover-chip: #E5E7EB;
+
+    /* Semantic */
+    --online: #10B981;
+    --success: #059669;
+    --user-bubble: #FAEAEA;
+    --bot-bubble: #FFFFFF;
+
+    /* Typography */
+    --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+
+    /* Radius */
+    --r-xl: 0px;
+    --r-bubble: 16px;
+    --r-chip: 20px;
+
+    /* Shadows */
+    --shadow-card: 0 10px 40px rgba(0, 0, 0, 0.08);
+    --shadow-bubble: 0 1px 4px rgba(0, 0, 0, 0.05);
+    --shadow-chip: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+html,
+body {
+    height: 100%;
+    font-family: var(--font);
+    background: #E5E7EB;
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+}
+
+body {
+    min-height: 100vh;
+}
+
+.page-content {
+    min-height: 100vh;
+}
+
+/* ── Floating chat container: always bottom-right ─────────────── */
+.floating-chat {
+    position: relative;
+    z-index: 9998;
+    /* Prevent any layout from pulling children to the left */
+    left: 0;
+    right: 0;
+}
+
+/* ── Tooltip above the chat button ──────────────────────────────── */
+.chat-tooltip {
+    position: fixed;
+    bottom: 88px;
+    right: 24px;
+    left: auto;
+    top: auto;
+    z-index: 9999;
+    max-width: 240px;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(6px);
+    transition: opacity 0.35s ease-out, visibility 0.35s, transform 0.35s ease-out;
+}
+
+.chat-tooltip.chat-tooltip--visible {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    animation: chat-tooltip-fade-in 0.4s ease-out;
+}
+
+@keyframes chat-tooltip-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.chat-tooltip-inner {
+    background: #374151;
+    color: #fff;
+    border-radius: 12px;
+    padding: 12px 16px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.chat-tooltip-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0 0 4px 0;
+    line-height: 1.3;
+}
+
+.chat-tooltip-cta {
+    font-size: 13px;
+    color: #d1d5db;
+    margin: 0;
+    line-height: 1.4;
+}
+
+.chat-tooltip-arrow {
+    position: absolute;
+    bottom: -8px;
+    right: 24px;
+    width: 0;
+    height: 0;
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-top: 10px solid #374151;
+}
+
+@media (min-width: 480px) {
+    .chat-tooltip {
+        bottom: 96px;
+        right: 24px;
+    }
+}
+
+/* ── Floating chat button (FAB): MUST stay bottom-right ────────── */
+.chat-fab {
+    position: fixed !important;
+    bottom: 24px !important;
+    right: 24px !important;
+    left: auto !important;
+    top: auto !important;
+    z-index: 9999;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: #E53935;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2), 0 0 20px rgba(229, 57, 53, 0.3);
+    transition: transform 0.2s ease, box-shadow 0.2s, background 0.2s;
+}
+
+.chat-fab:hover {
+    background: #C62828;
+    transform: scale(1.08);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25), 0 0 24px rgba(229, 57, 53, 0.35);
+}
+
+.chat-fab:active {
+    transform: scale(0.98);
+}
+
+.chat-fab:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(229, 57, 53, 0.4), 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.chat-fab-icon {
+    flex-shrink: 0;
+}
+
+@media (min-width: 480px) {
+    .chat-fab {
+        width: 60px;
+        height: 60px;
+    }
+    .chat-fab-icon {
+        width: 28px;
+        height: 28px;
+    }
+}
+
+/* Hide FAB when chat panel is open */
+.floating-chat.chat-panel-open .chat-fab {
+    opacity: 0;
+    pointer-events: none;
+    visibility: hidden;
+    transition: opacity 0.2s, visibility 0.2s;
+}
+
+/* ── Chat wrapper (default: full height for legacy) ────────────── */
+.chat-wrapper {
+    width: 100%;
+    max-width: 480px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    position: relative;
+}
+
+/* Chat panel: MUST stay bottom-right, phone-sized viewport, slide-up */
+.chat-wrapper.chat-panel {
+    position: fixed !important;
+    bottom: 24px !important;
+    right: 24px !important;
+    left: auto !important;
+    top: auto !important;
+    /*
+      Responsive sizing:
+      - Uses dynamic viewport units (dvw/dvh) for mobile browser UI (address bar)
+      - Clamped so it still feels like a phone screen on larger displays
+    */
+    width: clamp(320px, calc(100dvw - 48px), 440px);
+    width: clamp(320px, calc(100vw - 48px), 440px); /* fallback */
+    height: clamp(520px, calc(100dvh - 120px), 820px);
+    height: clamp(520px, calc(100vh - 120px), 820px); /* fallback */
+    border-radius: 16px;
+    box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.06);
+    overflow: hidden;
+    z-index: 9999;
+    transform: translateY(100%);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: transform 0.3s ease-out, opacity 0.25s, visibility 0.3s;
+}
+
+.chat-wrapper.chat-panel.chat-panel--open {
+    transform: translateY(0);
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    animation: chat-panel-slide-up 0.3s ease-out;
+}
+
+@keyframes chat-panel-slide-up {
+    from {
+        transform: translateY(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+/* Mobile: chat panel full width, near-full height */
+@media (max-width: 480px) {
+    .chat-wrapper.chat-panel {
+        right: 0 !important;
+        left: 0 !important;
+        bottom: 0 !important;
+        width: 100dvw;
+        width: 100vw; /* fallback */
+        max-width: 100%;
+        height: calc(100dvh - env(safe-area-inset-top, 0px));
+        height: calc(100vh - env(safe-area-inset-top, 0px)); /* fallback */
+        max-height: 100%;
+        border-radius: 16px 16px 0 0;
+    }
+}
+
+@media (min-width: 520px) {
+    .chat-wrapper:not(.chat-panel) {
+        height: 94vh;
+        max-height: 850px;
+        border-radius: 20px;
+        box-shadow: var(--shadow-card);
+        overflow: hidden;
+    }
+}
+
+/* ── Closed chat widget (welcome + CTA + FAB) ──────────────────── */
+.chat-closed-widget {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    z-index: 9999;
+    font-family: var(--font);
+}
+
+.chat-closed-card {
+    background: #fff;
+    border-radius: 14px;
+    padding: 14px 18px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+    border: 1px solid var(--border);
+    max-width: 220px;
+    cursor: pointer;
+    transition: box-shadow 0.2s;
+}
+
+.chat-closed-card:hover {
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.15);
+}
+
+.chat-closed-welcome {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 4px 0;
+    line-height: 1.3;
+}
+
+.chat-closed-cta {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin: 0;
+    line-height: 1.4;
+}
+
+.chat-closed-fab {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--primary);
+    border: none;
+    cursor: pointer;
+    /* Soft outer glow (red halo) + depth shadow */
+    box-shadow:
+        0 0 0 0 rgba(194, 38, 39, 0.4),
+        0 0 24px 4px rgba(194, 38, 39, 0.35),
+        0 0 48px 12px rgba(194, 38, 39, 0.2),
+        0 4px 16px rgba(0, 0, 0, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+/* Notification badge (top-right dot) */
+.chat-closed-fab::after {
+    content: "";
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--primary-light);
+    border: 2px solid #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
+.chat-closed-fab:hover {
+    background: var(--primary-dark);
+    box-shadow:
+        0 0 0 0 rgba(155, 28, 28, 0.45),
+        0 0 28px 6px rgba(194, 38, 39, 0.4),
+        0 0 56px 16px rgba(194, 38, 39, 0.25),
+        0 6px 20px rgba(0, 0, 0, 0.22);
+}
+
+.chat-closed-fab:focus {
+    outline: none;
+}
+
+/* ── Header ───────────────────────────────────────────────────── */
+.chat-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    background: var(--primary);
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+}
+
+.header-avatar {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--primary);
+    flex-shrink: 0;
+}
+
+.online-ring {
+    position: absolute;
+    bottom: 0px;
+    right: 0px;
+    width: 12px;
+    height: 12px;
+    background: var(--online);
+    border-radius: 50%;
+    border: 2px solid var(--primary);
+}
+
+.header-center {
+    text-align: center;
+    flex: 1;
+}
+
+.header-center h1 {
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.header-center .subtitle {
+    font-size: 12px;
+    font-weight: 400;
+    opacity: 0.9;
+    margin-top: 2px;
+    transition: all 0.3s;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+}
+
+/* ── Progress bar ─────────────────────────────────────────────── */
+.progress-track {
+    height: 3px;
+    background: rgba(194, 38, 39, 0.15);
+    flex-shrink: 0;
+    position: relative;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: var(--primary);
+    width: 0%;
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 0 2px 2px 0;
+}
+
+/* ── Messages area ────────────────────────────────────────────── */
+.chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 16px calc(96px + env(safe-area-inset-bottom, 0px)) 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    background: var(--bg);
+    scroll-behavior: smooth;
+}
+
+/* ── Message bubbles ──────────────────────────────────────────── */
+.message {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    max-width: 95%;
+    animation: fade-up 0.3s ease forwards;
+}
+
+.bot-message {
+    align-self: flex-start;
+}
+
+.user-message {
+    align-self: flex-end;
+    flex-direction: row-reverse;
+}
+
+.message-avatar-box {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    background: var(--text-primary);
+    color: #fff;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.user-message .message-avatar-box {
+    background: var(--text-muted);
+}
+
+.message-bubble {
+    background: var(--bot-bubble);
+    border-radius: var(--r-bubble);
+    padding: 14px 16px;
+    box-shadow: var(--shadow-bubble);
+    position: relative;
+    border: 1px solid var(--border);
+}
+
+.user-message .message-bubble {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #FFFFFF;
+    border-radius: 16px 16px 4px 16px;
+    padding: 12px 16px;
+    box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.message-bubble p {
+    font-size: 14.5px;
+    line-height: 1.5;
+    color: var(--text-primary);
+    min-height: 1.5em;
+    /* Keeps bubble stable during streaming so no layout jump */
+}
+
+.user-message .message-bubble p {
+    color: #FFFFFF;
+}
+
+/* ── Option buttons: full-width section (avatar does not affect layout) ── */
+.options-container {
+    width: 100%;
+    padding-left: 0;
+    padding-right: 0;
+    margin-top: 12px;
+    margin-bottom: 0;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    animation: fade-up 0.3s ease forwards;
+    box-sizing: border-box;
+}
+
+.prenatal-learn-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.option-btn--prenatal {
+    background: #FDF2F2;
+    border: 1.5px solid var(--primary-light);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 48px;
+}
+
+.option-btn--prenatal .btn-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.option-btn--prenatal:hover {
+    background: #FAEAEA;
+    border-color: var(--primary);
+}
+
+.option-btn {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    background: #FFFFFF;
+    color: var(--text-primary);
+    border: 1.5px solid var(--primary-light);
+    border-radius: 14px;
+    padding: 12px 14px;
+    font-size: 13.5px;
+    font-family: var(--font);
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    margin: 0;
+    line-height: 1.3;
+    min-height: 48px;
+    box-sizing: border-box;
+}
+
+.option-btn:hover:not(:disabled) {
+    background: #FAF5F5;
+    border-color: var(--primary);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(194, 38, 39, 0.12);
+}
+
+.option-btn:active:not(:disabled) {
+    background: #F3EAEA;
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.option-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+    pointer-events: none;
+}
+
+.btn-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+/* ── Booking step cards: full width (Schedule, Contact, etc.) ──── */
+.booking-card {
+    width: 100%;
+    box-sizing: border-box;
+    margin-left: 0;
+    margin-right: 0;
+    background: #FFFFFF;
+    border: 1.5px solid var(--border);
+    border-radius: 18px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+    animation: fade-up 0.35s ease forwards;
+}
+
+.booking-card-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--primary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+}
+
+.booking-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin-bottom: -4px;
+}
+
+.booking-required {
+    color: var(--primary);
+    font-weight: 700;
+}
+
+.booking-input {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+    padding: 11px 14px;
+    font-size: 14px;
+    font-family: var(--font);
+    color: var(--text-primary);
+    background: var(--bg);
+    outline: none;
+    transition: border-color 0.2s;
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.booking-input:focus {
+    border-color: var(--primary);
+    background: #fff;
+}
+
+.booking-input::placeholder {
+    color: var(--text-muted);
+}
+
+.time-slot-select {
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239CA3AF' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 32px;
+    background-color: #F9FAFB;
+}
+
+/* Picker inputs (date/time) */
+.booking-input--picker {
+    cursor: pointer;
+    background-color: #F9FAFB;
+}
+
+/* ── Material date/time picker: keep it INSIDE chat panel ───────────── */
+#chat-panel .mddtp-picker.mddtp-picker--in-chat {
+    position: absolute !important;
+    top: 50% !important;
+    left: 50% !important;
+    transform: translate3d(-50%, -50%, 0) !important;
+    max-width: calc(100% - 24px) !important;
+    max-height: calc(100% - 24px) !important;
+}
+
+#chat-panel .mddtp-picker.mddtp-picker--in-chat .mddtp-picker__body {
+    max-width: 100%;
+}
+
+/* ── Custom in-panel time picker (inside chatbot UI) ─────────────────── */
+.time-picker-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.4);
+    padding: 16px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.time-picker-overlay--visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+.time-picker-card {
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+    width: 100%;
+    max-width: 320px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transform: scale(0.95);
+    transition: transform 0.2s ease;
+}
+
+.time-picker-overlay--visible .time-picker-card {
+    transform: scale(1);
+}
+
+.time-picker-title {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 18px 16px;
+    font-size: 16px;
+    font-weight: 600;
+    color: #111827;
+    background: linear-gradient(180deg, #FEF2F2 0%, #fff 100%);
+    border-bottom: 1px solid #FEE2E2;
+}
+
+.time-picker-title svg {
+    flex-shrink: 0;
+    color: var(--primary);
+}
+
+.time-picker-slots {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    padding: 20px 16px;
+    overflow-y: auto;
+    max-height: 280px;
+}
+
+.time-picker-slot {
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 500;
+    color: #374151;
+    background: #F9FAFB;
+    border: 2px solid #E5E7EB;
+    border-radius: 12px;
+    padding: 12px 8px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+}
+
+.time-picker-slot:hover {
+    background: #FEE2E2;
+    border-color: var(--primary-light);
+    color: var(--primary);
+}
+
+.time-picker-slot--selected {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+}
+
+.time-picker-slot--selected:hover {
+    background: var(--primary-dark);
+    border-color: var(--primary-dark);
+    color: #fff;
+}
+
+.time-picker-actions {
+    display: flex;
+    gap: 12px;
+    padding: 16px;
+    border-top: 1px solid #E5E7EB;
+    background: #FAFAFA;
+}
+
+.time-picker-btn {
+    flex: 1;
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 600;
+    padding: 12px 16px;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.05s;
+}
+
+.time-picker-btn--cancel {
+    background: #fff;
+    color: #6B7280;
+    border: 1.5px solid #D1D5DB;
+}
+
+.time-picker-btn--cancel:hover {
+    background: #F3F4F6;
+}
+
+.time-picker-btn--ok {
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    box-shadow: 0 2px 8px rgba(194, 38, 39, 0.25);
+}
+
+.time-picker-btn--ok:hover {
+    background: var(--primary-dark);
+    transform: translateY(-1px);
+}
+
+/* (removed) Flatpickr theming – replaced by Material picker */
+
+/* Location input with detect button */
+.booking-card [style*="position:relative"] {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.detect-btn {
+    white-space: nowrap;
+    flex-shrink: 0;
+    background: var(--primary-light);
+    color: var(--primary);
+    border: 1.5px solid var(--primary-light);
+    border-radius: 10px;
+    padding: 9px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--font);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.2s;
+}
+
+.detect-btn:hover {
+    background: var(--primary);
+    color: #fff;
+}
+
+.booking-btn {
+    width: 100%;
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    padding: 13px 14px;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: var(--font);
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 4px;
+    box-shadow: 0 2px 8px rgba(194, 38, 39, 0.25);
+}
+
+.booking-btn:hover {
+    background: var(--primary-dark);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(194, 38, 39, 0.3);
+}
+
+.booking-btn:active {
+    transform: translateY(0);
+}
+
+.self-check-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13.5px;
+    color: var(--text-primary);
+    font-weight: 500;
+    cursor: pointer;
+    user-select: none;
+}
+
+.self-check-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+
+.email-hint,
+.booking-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: -6px;
+}
+
+.card-error {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+}
+.card-error .card-error-icon {
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+.card-error .card-error-text {
+    flex: 1;
+}
+
+/* ── Confirmation card ────────────────────────────────────────── */
+.confirmation-card {
+    background: #fff;
+    border: 1.5px solid #D1FAE5;
+    border-radius: 18px;
+    padding: 22px;
+    box-shadow: 0 4px 20px rgba(5, 150, 105, 0.1);
+    animation: fade-up 0.35s ease forwards;
+    margin-left: 0;
+    width: 100%;
+}
+
+.confirm-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.confirm-check {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--success);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3);
+}
+
+.confirm-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+    line-height: 1.25;
+}
+
+.confirm-id {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 4px;
+    font-weight: 500;
+}
+
+.confirm-id strong {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.confirm-grid {
+    background: var(--bg);
+    border-radius: 14px;
+    padding: 18px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin-bottom: 18px;
+}
+
+.confirm-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.confirm-row:first-child {
+    padding-top: 0;
+}
+
+.confirm-row--full .confirm-val {
+    word-break: break-word;
+    line-height: 1.45;
+}
+
+.confirm-row--last,
+.confirm-row:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.confirm-key {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.confirm-val {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text-primary);
+    line-height: 1.4;
+    letter-spacing: -0.01em;
+}
+
+.confirm-next {
+    background: #EFF6FF;
+    border-left: 3px solid #3B82F6;
+    border-radius: 8px;
+    padding: 12px 14px;
+}
+
+.confirm-next-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #1D4ED8;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.confirm-next-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.confirm-next-list li {
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    padding-left: 14px;
+    position: relative;
+}
+
+.confirm-next-list li::before {
+    content: "•";
+    position: absolute;
+    left: 2px;
+    color: #3B82F6;
+    font-weight: 700;
+}
+
+/* ── Typing indicator ─────────────────────────────────────────── */
+.typing-indicator {
+    display: none;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 0px 16px 20px;
+    flex-shrink: 0;
+}
+
+.typing-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: var(--primary);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.typing-bubble {
+    background: var(--bot-bubble);
+    border: 1px solid var(--border);
+    border-radius: var(--r-bubble);
+    padding: 14px 16px;
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    box-shadow: var(--shadow-bubble);
+}
+
+.typing-bubble span {
+    width: 6px;
+    height: 6px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    animation: typing-dot 1.4s infinite ease-in-out both;
+}
+
+.typing-bubble span:nth-child(1) { animation-delay: -0.32s; }
+.typing-bubble span:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes typing-dot {
+    0%, 80%, 100% { transform: scale(0); }
+    40% { transform: scale(1); }
+}
+
+/* ── Input bar ────────────────────────────────────────────────── */
+.chat-input-bar {
+    padding: 12px 16px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.input-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface);
+    border: 1px solid #D1D5DB;
+    border-radius: 24px;
+    padding: 10px 14px;
+    transition: border-color 0.2s;
+}
+
+.input-wrapper:focus-within {
+    border-color: var(--text-secondary);
+}
+
+.chat-input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    font-size: 14.5px;
+    font-family: var(--font);
+    color: var(--text-primary);
+    outline: none;
+    padding: 6px 0;
+}
+
+.chat-input::placeholder {
+    color: var(--text-muted);
+}
+
+.icon-button {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    cursor: pointer;
+    border-radius: 50%;
+    transition: color 0.15s, background 0.15s;
+}
+
+.icon-button:hover:not(:disabled) {
+    background: var(--bg-chip);
+    color: var(--text-primary);
+}
+
+.icon-button:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.send-button {
+    color: var(--primary);
+}
+
+.send-button:hover:not(:disabled) {
+    background: var(--primary-light);
+    color: var(--primary-dark);
+}
+
+/* ── Mic button recording state ───────────────────────────────── */
+.mic-button.recording {
+    color: #fff;
+    background: var(--primary);
+    animation: pulse-mic 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-mic {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(194, 38, 39, 0.5); }
+    50%       { box-shadow: 0 0 0 8px rgba(194, 38, 39, 0); }
+}
+
+/* ── Animations ───────────────────────────────────────────────── */
+@keyframes fade-up {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ── Google Places autocomplete dropdown fix ──────────────────── */
+.pac-container {
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+    border: 1px solid var(--border);
+    font-family: var(--font);
+    font-size: 13px;
+    z-index: 99999;
+}

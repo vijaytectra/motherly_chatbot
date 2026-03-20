@@ -19,7 +19,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 SYSTEM_PROMPT = """
 You are Mothrly Assistant, the AI assistant for the Motherly maternal healthcare platform.
 
-Your responsibility is to help users quickly booking support through chat while using the same booking system already implemented in the Motherly mobile application.
+Your responsibility is to help users quickly book support through chat while using the same booking system already implemented in the Motherly mobile application.
 
 You must guide the user through the consultation booking process using a conversational flow that mirrors the app booking flow but is faster and simpler.
 
@@ -251,9 +251,9 @@ Options:
 """.strip()
 
 
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Optional
 
-def get_chat_response(user_message: str, history: List[Dict[str, str]] = None) -> Tuple[str, int]:
+def get_chat_response(user_message: str, history: Optional[List[Dict[str, str]]] = None) -> Tuple[str, int]:
     """
     Send the user's message to OpenAI GPT-4o mini along with Mothrly Assistant's
     system prompt and return the assistant's reply.
@@ -324,11 +324,12 @@ VALIDATOR_SYSTEM = """You are a validator for a maternal healthcare booking app.
 
 Your job: decide if their response is RELEVANT and VALID for completing the booking.
 
-RELEVANT & VALID = A genuine description of why they need this service. Examples:
+RELEVANT & VALID = A genuine description of why they need this service or what they want from it. Accept:
 - Needing pregnancy support, labour support, postpartum care, birth plan (for doula)
+- Describing the kind of person or experience they want (e.g. "someone patient, understanding, supportive", "positive birth experience") — these are valid
 - Needing childcare, nanny for work, child's routine (for nanny)
 - Feeding issues, lactation support, breastfeeding help (for lactation)
-- Any sincere, on-topic reason for the booked service
+- Any sincere, on-topic reason or preference for the booked service
 
 NOT VALID = Reject when the response is:
 - Off-topic (e.g. feedback about the app, UI complaints, email/Gmail requirements, feature requests)
@@ -396,24 +397,25 @@ Is this response relevant and valid (a genuine description of their need)? Reply
             max_tokens=150,
         )
         content = (response.choices[0].message.content or "").strip()
+        if not content:
+            return True, ""
         reply_upper = content.upper()
         if reply_upper.startswith("VALID"):
             return True, ""
         if reply_upper.startswith("INVALID"):
-            # Extract message after "INVALID:" or "INVALID -" etc.
-            invalid_len = 7  # len("INVALID")
-            rest = content[invalid_len:].strip()
-            if rest.startswith(":") or rest.startswith("-") or rest.startswith("—"):
-                msg = rest[1:].strip()
-            else:
-                msg = rest
+            # Extract message after "INVALID" (e.g. "INVALID: please describe...")
+            parts = content.split("INVALID", 1)
+            rest = parts[1].strip() if len(parts) > 1 else ""
+            
+            # Remove leading punctuation like ":", "-", "—"
+            msg = rest.lstrip(": -—").strip()
+            
             if msg:
                 return False, msg
             return False, _default_invalid_message(service)
-        # Unclear response: treat as invalid with default message
-        return False, _default_invalid_message(service)
+        # Unclear LLM response: fail open so we don't block legitimate users
+        return True, ""
     except Exception as e:
         print(f"[ERROR] validate_booking_description failed: {e}")
-        return False, (
-            "We couldn't check your response right now. Please try again, or tell us about your situation and submit.\n\nTip: You can type or use the mic."
-        )
+        # Fail open so API/key/network errors don't block the user
+        return True, ""

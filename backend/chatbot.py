@@ -685,17 +685,17 @@ def get_chat_response(user_message: str, history: Optional[List[Dict[str, str]]]
 # ── Booking description validator (LLM checks relevance & validity) ─────
 def _default_invalid_message(service: str) -> str:
     """Return a clear, short message when the response is invalid. Easy to read in chat."""
-    tip = "\n\nTip: You can type or use the mic."
+    tip = "\nTip: Type or use the mic."
     s = (service or "").lower()
     if "nanny" in s:
-        return "Tell us about your childcare needs so we can find the right fit.\n\nWhat to include:\n• Hours or days you need care\n• Child's routine or schedule\n• Any special care requirements" + tip
+        return "Tell us your childcare needs so we can match you with the right nanny.\nInclude: care timing, child routine, and special requirements." + tip
     if "doula" in s:
-        return "Please tell us a little about your situation so we can match you with the right doula.\n\nWhat to include:\n• Type of support you need (birth, labour, postpartum)\n• Any concerns or special requests\n• Your pregnancy stage" + tip
+        return "Tell us your needs so we can match you with the right doula.\nInclude: support type, concerns, and pregnancy stage." + tip
     if "lactation" in s:
-        return "Share a bit about your feeding situation so we can match you with the right support.\n\nWhat to include:\n• Current feeding goals or challenges\n• Baby's age (if relevant)\n• Any specific concerns" + tip
+        return "Tell us your feeding needs so we can match you with the right support.\nInclude: feeding challenge, baby's age, and concerns." + tip
     if "doctor" in s or "consultation" in s:
-        return "Briefly tell us why you're booking this consultation.\n\nWhat to include:\n• Main concern or symptom\n• How long it's been going on\n• Any relevant history" + tip
-    return "Please tell us a little about your situation so we can help.\n\nWhat to include:\n• Why you need this booking\n• Any specific concerns or requests" + tip
+        return "Tell us why you need this consultation.\nInclude: main symptom, duration, and relevant history." + tip
+    return "Tell us your needs so we can help.\nInclude: reason for booking and any concerns." + tip
 
 
 VALIDATOR_SYSTEM = """You are a validator for a maternal healthcare booking app. The user has just been asked to describe their situation for the **booked service** shown below.
@@ -747,6 +747,19 @@ INVALID: <one short, friendly sentence>
 For INVALID, the sentence should ask them to describe their need **for the booked service**. Do not repeat the word INVALID. Keep the tone warm."""
 
 _ALLOWED_SWITCH_SLUGS = frozenset({"doctor", "doula", "lactation", "nanny"})
+_ABUSIVE_PATTERN = re.compile(
+    r"\b(fuck|f\*+k|shit|bitch|asshole|bastard|motherfucker|idiot|stupid|dumb)\b",
+    re.IGNORECASE,
+)
+_LOW_INFO_TOKENS = {"ok", "okay", "hmm", "hmmm", "yes", "no", "fine", "hello", "hi"}
+_RELEVANT_HINTS = (
+    "pregnan", "postpartum", "post partum", "baby", "newborn", "infant",
+    "feeding", "feed", "latch", "breast", "milk",
+    "support", "care", "help", "emotional support",
+    "doula", "lactation", "nanny", "doctor", "consult", "consultation",
+    "symptom", "pain", "medical",
+    "book", "booking",
+)
 
 
 def _switch_ack_default(slug: str) -> str:
@@ -868,6 +881,48 @@ def _parse_validator_llm_content(content: str, service: str) -> Tuple[bool, str,
     return True, "", None
 
 
+def _heuristic_invalid_description(description: str, service: str) -> Tuple[bool, str]:
+    """
+    Lightweight local safety check so obvious abusive/useless replies are not accepted
+    even when LLM validation is unavailable.
+    Returns (is_invalid, user_message_if_invalid).
+    """
+    text = (description or "").strip()
+    if not text:
+        return True, _default_invalid_message(service)
+
+    lower = text.lower()
+    tokens = [w for w in re.split(r"\s+", lower) if w]
+    unique = set(tokens)
+
+    if _ABUSIVE_PATTERN.search(lower):
+        return True, (
+            "I’m here to help you get the right support. "
+            "Please share your needs for this booking so I can assist you better."
+        )
+
+    # Very short acknowledgements / fillers are not useful as a description.
+    if len(tokens) <= 2 and all(t in _LOW_INFO_TOKENS for t in tokens):
+        return True, "Could you please share a bit more about your situation or what kind of support you're looking for?"
+
+    # Repeated single abusive/useless token
+    if len(tokens) >= 1 and len(unique) == 1 and len(tokens) < 6:
+        return True, "Could you please share a bit more about your situation or what kind of support you're looking for?"
+
+    # Accept imperfect but relevant short phrases (voice/text-friendly).
+    if any(h in lower for h in _RELEVANT_HINTS):
+        return False, ""
+
+    # Irrelevant/off-topic generic text: reject with a gentle redirect.
+    if len(tokens) <= 8:
+        return True, (
+            "Got it 🙂 I just need a bit more information about your care needs so I can match you with the right support. "
+            "Could you tell me what kind of help you're looking for?"
+        )
+
+    return False, ""
+
+
 def validate_booking_description(description: str, service: str) -> Tuple[bool, str, Optional[str]]:
     """
     Check if the user's booking description fits the booked service.
@@ -881,6 +936,10 @@ def validate_booking_description(description: str, service: str) -> Tuple[bool, 
     """
     if not (description and description.strip()):
         return False, "Please tell us a little about your situation so we can help.\n\nTip: You can type or use the mic.", None
+
+    invalid, invalid_msg = _heuristic_invalid_description(description, service)
+    if invalid:
+        return False, invalid_msg, None
 
     switch_slug = _heuristic_service_switch(description, service)
     if switch_slug:
@@ -926,4 +985,8 @@ Reply with SWITCH:..., VALID, or INVALID: ... per your instructions."""
         return valid, msg, redir
     except Exception as e:
         print(f"[ERROR] validate_booking_description failed: {e}")
+        # Fall back to local heuristics only; otherwise allow to avoid blocking genuine users.
+        invalid, invalid_msg = _heuristic_invalid_description(description, service)
+        if invalid:
+            return False, invalid_msg, None
         return True, "", None

@@ -22,9 +22,220 @@ let placesAutocomplete = null;
 let userHasOpenedChat = false;
 let chatInitialized = false;
 let tooltipTimeoutId = null;
+let isResettingChat = false;
+let sessionId = null;
+
+const SESSION_STORAGE_PREFIX = "mothrly_chat_session:";
+const SESSION_ACTIVE_KEY = "mothrly_chat_active_session_id";
+const SESSION_AUTOSAVE_MS = 1500;
+
+function generateSessionId() {
+    return `mcs_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getSidFromUrl() {
+    try {
+        return new URLSearchParams(window.location.search).get("sid");
+    } catch {
+        return null;
+    }
+}
+
+function setSidInUrl(sid) {
+    if (!sid || typeof window === "undefined") return;
+    try {
+        const url = new URL(window.location.href);
+        url.searchParams.set("sid", sid);
+        window.history.replaceState({}, "", url.toString());
+    } catch {
+        // ignore URL update errors
+    }
+}
+
+function ensureSessionId() {
+    if (sessionId) return sessionId;
+    const sidFromUrl = getSidFromUrl();
+    const sidFromStorage = localStorage.getItem(SESSION_ACTIVE_KEY);
+    sessionId = sidFromUrl || sidFromStorage || generateSessionId();
+    localStorage.setItem(SESSION_ACTIVE_KEY, sessionId);
+    setSidInUrl(sessionId);
+    return sessionId;
+}
+
+function getCurrentProgressStep() {
+    if (bookingState && Number.isFinite(bookingState.step)) return bookingState.step;
+    const label = document.getElementById("step-label")?.textContent || "";
+    const m = label.match(/Step\s+(\d)/i);
+    return m ? Number(m[1]) : 0;
+}
+
+function captureFormDraftsFromDom() {
+    return {
+        location: document.getElementById("loc-input")?.value || "",
+        dateDisplay: document.getElementById("date-input")?.value || "",
+        dateIso: document.getElementById("date-input")?.dataset?.iso || "",
+        timeDisplay: document.getElementById("time-input")?.value || "",
+        time24: document.getElementById("time-input")?.dataset?.value24 || "",
+        name: document.getElementById("c-name")?.value || "",
+        phone: document.getElementById("c-phone")?.value || "",
+        email: document.getElementById("c-email")?.value || "",
+        relation: document.getElementById("c-relation")?.value || "",
+        forSelf: Boolean(document.getElementById("c-self")?.checked),
+        description: userInput?.value || "",
+    };
+}
+
+function applyFormDraftsToDom(drafts) {
+    if (!drafts || typeof drafts !== "object") return;
+    const loc = document.getElementById("loc-input");
+    const dateEl = document.getElementById("date-input");
+    const timeEl = document.getElementById("time-input");
+    const nameEl = document.getElementById("c-name");
+    const phoneEl = document.getElementById("c-phone");
+    const emailEl = document.getElementById("c-email");
+    const relationEl = document.getElementById("c-relation");
+    const selfEl = document.getElementById("c-self");
+
+    if (loc && drafts.location && !loc.value) loc.value = drafts.location;
+    if (dateEl) {
+        if (drafts.dateDisplay && !dateEl.value) dateEl.value = drafts.dateDisplay;
+        if (drafts.dateIso && !dateEl.dataset.iso) dateEl.dataset.iso = drafts.dateIso;
+    }
+    if (timeEl) {
+        if (drafts.timeDisplay && !timeEl.value) timeEl.value = drafts.timeDisplay;
+        if (drafts.time24 && !timeEl.dataset.value24) timeEl.dataset.value24 = drafts.time24;
+    }
+    if (nameEl && drafts.name && !nameEl.value) nameEl.value = drafts.name;
+    if (phoneEl && drafts.phone && !phoneEl.value) phoneEl.value = drafts.phone;
+    if (emailEl && drafts.email && !emailEl.value) emailEl.value = drafts.email;
+    if (relationEl && drafts.relation && !relationEl.value) relationEl.value = drafts.relation;
+    if (selfEl && drafts.forSelf) {
+        selfEl.checked = true;
+        if (typeof window.toggleSelfBooking === "function") window.toggleSelfBooking(selfEl);
+    }
+}
+
+function reinitializeRestoredWidgets() {
+    // Reconnect schedule-card controls after HTML snapshot restore
+    if (document.getElementById("schedule-card")) {
+        const todayStr = new Date().toISOString().split("T")[0];
+        initLocationClearControl();
+        initLocationAutocomplete();
+        initSchedulePickers(todayStr);
+    }
+}
+
+function saveSessionSnapshot() {
+    if (!messagesContainer) return;
+    const sid = ensureSessionId();
+    const quickActionsBar = document.getElementById("quick-actions-bar");
+    const snapshot = {
+        version: 1,
+        sid,
+        savedAt: Date.now(),
+        chatHistory,
+        bookingState,
+        detectedLocation,
+        chatInitialized,
+        progressStep: getCurrentProgressStep(),
+        messagesHtml: messagesContainer.innerHTML,
+        formDrafts: captureFormDraftsFromDom(),
+        quickActionsHtml: quickActionsBar ? quickActionsBar.innerHTML : "",
+        quickActionsVisible: Boolean(quickActionsBar && quickActionsBar.classList.contains("quick-actions-bar--visible")),
+    };
+    try {
+        localStorage.setItem(`${SESSION_STORAGE_PREFIX}${sid}`, JSON.stringify(snapshot));
+        localStorage.setItem(SESSION_ACTIVE_KEY, sid);
+    } catch {
+        // ignore quota/storage errors
+    }
+}
+
+function applySessionSnapshot(snapshot) {
+    if (!snapshot || !messagesContainer) return false;
+    chatHistory = Array.isArray(snapshot.chatHistory) ? snapshot.chatHistory : [];
+    bookingState = snapshot.bookingState && typeof snapshot.bookingState === "object" ? snapshot.bookingState : {};
+    detectedLocation = snapshot.detectedLocation || null;
+    chatInitialized = Boolean(snapshot.chatInitialized || snapshot.messagesHtml);
+    messagesContainer.innerHTML = snapshot.messagesHtml || "";
+    updateProgress(Number.isFinite(snapshot.progressStep) ? snapshot.progressStep : (bookingState.step || 0));
+    const quickActionsBar = document.getElementById("quick-actions-bar");
+    if (quickActionsBar) {
+        quickActionsBar.innerHTML = snapshot.quickActionsHtml || "";
+        quickActionsBar.classList.toggle("quick-actions-bar--visible", Boolean(snapshot.quickActionsVisible));
+    }
+    rebindInteractiveButtonsAfterRestore();
+    applyFormDraftsToDom(snapshot.formDrafts || {});
+    reinitializeRestoredWidgets();
+    setInputEnabled(true);
+    showTyping(false);
+    return true;
+}
+
+function normalizeLabel(text) {
+    return (text || "").replace(/\s+/g, " ").trim();
+}
+
+function rebindInteractiveButtonsAfterRestore() {
+    const replaceButton = (btn) => {
+        const clone = btn.cloneNode(true);
+        btn.replaceWith(clone);
+        return clone;
+    };
+
+    // Rebind welcome buttons (main + quick actions)
+    document.querySelectorAll(
+        ".option-btn--welcome-primary, .option-btn--welcome-secondary"
+    ).forEach((btn) => {
+        const rebound = replaceButton(btn);
+        const label = normalizeLabel(rebound.textContent);
+        rebound.addEventListener("click", () => handleServiceSelection(label));
+    });
+
+    // Rebind sub-option grids using their context
+    document.querySelectorAll(".options-container[data-context]").forEach((row) => {
+        const context = row.dataset.context;
+        row.querySelectorAll("button.option-btn").forEach((btn) => {
+            const rebound = replaceButton(btn);
+            const label = normalizeLabel(rebound.textContent);
+            rebound.addEventListener("click", () => handleSubOptionSelection(context, label));
+        });
+    });
+
+    // Rebind generic chips produced from parsed bot options
+    document.querySelectorAll(".options-container:not([data-context]) button.option-btn:not(.option-btn--welcome-primary):not(.option-btn--welcome-secondary):not(.option-btn--review-change)").forEach((btn) => {
+        const rebound = replaceButton(btn);
+        const label = normalizeLabel(rebound.textContent);
+        rebound.addEventListener("click", () => sendMessage(label));
+    });
+}
+
+function tryRestoreSessionById(sid) {
+    if (!sid) return false;
+    try {
+        const raw = localStorage.getItem(`${SESSION_STORAGE_PREFIX}${sid}`);
+        if (!raw) return false;
+        const parsed = JSON.parse(raw);
+        sessionId = sid;
+        setSidInUrl(sessionId);
+        return applySessionSnapshot(parsed);
+    } catch {
+        return false;
+    }
+}
+
+function resumeSession() {
+    const sid = getSidFromUrl() || localStorage.getItem(SESSION_ACTIVE_KEY) || ensureSessionId();
+    const restored = tryRestoreSessionById(sid);
+    openChat();
+    if (!restored && !chatInitialized) {
+        saveSessionSnapshot();
+    }
+}
 
 // ── Initialize chat on first click ────────────────────────────────────
 window.addEventListener("DOMContentLoaded", () => {
+    ensureSessionId();
 
     // Floating UI: show welcoming tooltip on first load (hide after 7s or on first open)
     const tooltipEl = document.getElementById("chat-tooltip");
@@ -45,6 +256,11 @@ window.addEventListener("DOMContentLoaded", () => {
         fabEl.addEventListener("click", openChat);
     }
 
+    const sid = getSidFromUrl() || localStorage.getItem(SESSION_ACTIVE_KEY);
+    if (sid) {
+        tryRestoreSessionById(sid);
+    }
+
     // Ensure close button works (bind in JS so it never fails)
     const closeBtn = document.getElementById("btn-close");
     if (closeBtn) {
@@ -54,6 +270,14 @@ window.addEventListener("DOMContentLoaded", () => {
             closeChat();
         });
     }
+
+    setInterval(() => {
+        if (chatInitialized) saveSessionSnapshot();
+    }, SESSION_AUTOSAVE_MS);
+
+    window.addEventListener("beforeunload", () => {
+        if (chatInitialized) saveSessionSnapshot();
+    });
 });
 
 function hideTooltip() {
@@ -80,7 +304,7 @@ function openChat() {
         // Clear container and send welcome message
         messagesContainer.innerHTML = "";
         sendWelcomeMessage();
-        updateProgress(0);
+        updateProgress(1);
     }
 
     userHasOpenedChat = true;
@@ -97,7 +321,7 @@ function openChat() {
         panelEl.style.height = "";
         panelEl.dataset.minimized = "false";
         const minBtn = document.getElementById("btn-minimize");
-        if (minBtn) minBtn.title = "Minimize chat";
+        if (minBtn) minBtn.title = "Resume session";
     }
 
     panelEl.classList.remove("chat-panel--closed");
@@ -105,6 +329,7 @@ function openChat() {
     floatingChatEl.classList.add("chat-panel-open");
 
     setTimeout(() => userInput.focus(), 150);
+    saveSessionSnapshot();
 }
 
 function closeChatPanel() {
@@ -234,15 +459,15 @@ function maybeRenderBookingChipsAfterChat(userText) {
             break;
         case "doctor":
             renderSubOptions("consult-mode", [
-                { label: "Online Consultation", desc: "Video call with doctor" },
-                { label: "In-Clinic Visit", desc: "Visit our clinic in person" },
+                { label: "Online Consultation", desc: "Video Call With Doctor" },
+                { label: "In-Clinic Visit", desc: "Visit Our Clinic In Person" },
             ]);
             break;
         case "lactation":
             renderSubOptions("lactation-mode", [
-                { label: "Home Visit", desc: "Consultant visits you" },
-                { label: "Online Session", desc: "Video call support" },
-                { label: "Clinic Appointment", desc: "Visit our clinic" },
+                { label: "Home Visit", desc: "Consultant Visits You" },
+                { label: "Online Session", desc: "Video Call Support" },
+                { label: "Clinic Appointment", desc: "Visit OOur Clinic" },
             ]);
             break;
         case "prenatal":
@@ -250,8 +475,8 @@ function maybeRenderBookingChipsAfterChat(userText) {
             break;
         case "about":
             renderSubOptions("about-next", [
-                { label: "Book a Service", desc: "Start booking now" },
-                { label: "Contact Support", desc: "Talk to our team" },
+                { label: "Book a Service", desc: "Start Booking Now" },
+                { label: "Contact Support", desc: "Talk To Our Team" },
             ]);
             break;
         case "contact":
@@ -364,51 +589,42 @@ async function sendMessage(text) {
     } finally {
         setInputEnabled(true);
         setTimeout(() => userInput.focus(), 100);
+        saveSessionSnapshot();
     }
 }
 
 // ── Reset flow ────────────────────────────────────────────────────────
-function resetChat() {
-    const wrapper = document.querySelector('.chat-wrapper');
-    const messages = document.getElementById('chat-messages');
-    const inputBar = document.querySelector('.chat-input-bar');
-    const typingInd = document.getElementById('typing-indicator');
-    wrapper.style.height = '';
-    messages.style.display = '';
-    inputBar.style.display = '';
-    typingInd.style.display = '';
+async function resetChat() {
+    if (isResettingChat) return;
+    isResettingChat = true;
 
-    chatHistory = [];
-    bookingState = {};
-    messagesContainer.innerHTML = "";
-    showTyping(false);
-    updateProgress(0);
-    sendWelcomeMessage();
-}
-
-// ── Minimize chat ─────────────────────────────────────────────────────
-function minimizeChat() {
-    const wrapper = document.querySelector('.chat-wrapper');
-    const messages = document.getElementById('chat-messages');
-    const inputBar = document.querySelector('.chat-input-bar');
-    const typingInd = document.getElementById('typing-indicator');
-    const isMinimized = wrapper.dataset.minimized === 'true';
-
-    if (!isMinimized) {
-        messages.style.display = 'none';
-        inputBar.style.display = 'none';
-        typingInd.style.display = 'none';
-        wrapper.style.height = 'auto';
-        wrapper.dataset.minimized = 'true';
-        document.getElementById('btn-minimize').title = 'Restore chat';
-    } else {
+    const resetBtn = document.getElementById("btn-reset");
+    if (resetBtn) resetBtn.disabled = true;
+    try {
+        const wrapper = document.querySelector('.chat-wrapper');
+        const messages = document.getElementById('chat-messages');
+        const inputBar = document.querySelector('.chat-input-bar');
+        const typingInd = document.getElementById('typing-indicator');
+        wrapper.style.height = '';
         messages.style.display = '';
         inputBar.style.display = '';
-        wrapper.style.height = '';
-        wrapper.dataset.minimized = 'false';
-        document.getElementById('btn-minimize').title = 'Minimize chat';
+        typingInd.style.display = '';
+
+        chatHistory = [];
+        bookingState = {};
+        messagesContainer.innerHTML = "";
+        showTyping(false);
+        updateProgress(1);
+        await sendWelcomeMessage();
+        saveSessionSnapshot();
+    } finally {
+        if (resetBtn) resetBtn.disabled = false;
+        isResettingChat = false;
     }
 }
+
+// ── Resume icon action (restores existing session) ────────────────────
+window.resumeSession = resumeSession;
 
 // ── Close chat (collapse panel; FAB stays visible) ───────────────────
 function closeChat() {
@@ -421,6 +637,7 @@ if (typeof window !== "undefined") {
 }
 
 // ── Progress indicator ────────────────────────────────────────────────
+const DEFAULT_STEP_SUBTITLE = "Your maternal care assistant";
 const STEP_LABELS = ["", "Step 1 of 4 – Service", "Step 2 of 4 – Schedule", "Step 3 of 4 – Contact", "Step 4 of 4 – Confirmation"];
 
 function updateProgress(step) {
@@ -428,7 +645,7 @@ function updateProgress(step) {
     const bar = document.getElementById('progress-fill');
     if (!label || !bar) return;
     if (step === 0) {
-        label.textContent = "";
+        label.textContent = DEFAULT_STEP_SUBTITLE;
         bar.style.width = "0%";
         return;
     }
@@ -480,8 +697,8 @@ async function handleServiceSelection(service) {
     if (service === "Book Doctor Consultation") {
         await appendBotMessage("Would you prefer an **Online Consultation** or an **In-Clinic Visit**?");
         renderSubOptions("consult-mode", [
-            { label: "Online Consultation", desc: "Video call with doctor" },
-            { label: "In-Clinic Visit",     desc: "Visit our clinic in person" },
+            { label: "Online Consultation", desc: "Video Call With Doctor" },
+            { label: "In-Clinic Visit",     desc: "Visit Our Clinic In Person" },
         ]);
         return;
     }
@@ -489,9 +706,9 @@ async function handleServiceSelection(service) {
     if (service === "Book Lactation Consultant") {
         await appendBotMessage("How would you like to meet your lactation consultant?");
         renderSubOptions("lactation-mode", [
-            { label: "Home Visit",          desc: "Consultant visits you" },
-            { label: "Online Session",      desc: "Video call support" },
-            { label: "Clinic Appointment",  desc: "Visit our clinic" },
+            { label: "Home Visit",          desc: "Consultant Visits You" },
+            { label: "Online Session",      desc: "Video Call Support" },
+            { label: "Clinic Appointment",  desc: "Visit Our Clinic" },
         ]);
         return;
     }
@@ -586,6 +803,13 @@ function sentenceCaps(input) {
         }
     }
     return out;
+}
+
+function formatServiceForDisplay(service) {
+    const raw = String(service || "").trim();
+    if (!raw) return "—";
+    // Convert separators like "Doula — Pregnancy Support" to "Doula for Pregnancy Support"
+    return raw.replace(/\s+[—-]\s+/g, " for ");
 }
 
 function renderPrenatalLearnOptions() {
@@ -886,10 +1110,10 @@ function renderScheduleCard() {
         <p id="loc-status" style="font-size:12px;color:#9CA3AF;margin-top:4px; min-height:16px;"></p>
 
         <label class="booking-label">Date <span class="booking-required">*</span></label>
-        <input type="text" id="date-input" class="booking-input booking-input--picker" placeholder="Select date" readonly inputmode="none" aria-label="Select date">
+        <input type="text" id="date-input" class="booking-input booking-input--picker" placeholder="Select Date" readonly inputmode="none" aria-label="Select Date">
 
         <label class="booking-label">Time <span class="booking-required">*</span></label>
-        <input type="text" id="time-input" class="booking-input booking-input--picker" placeholder="Select time" readonly inputmode="none" aria-label="Select time">
+        <input type="text" id="time-input" class="booking-input booking-input--picker" placeholder="Select Time" readonly inputmode="none" aria-label="Select Time">
         <p class="booking-hint">Available: 9:00 AM – 6:00 PM</p>
 
         <button onclick="submitSchedule()" class="booking-btn">Next →</button>
@@ -985,7 +1209,7 @@ function openCustomDatePicker(dateInputEl, todayStr) {
     const overlay = document.createElement("div");
     overlay.className = "date-picker-overlay";
     overlay.setAttribute("role", "dialog");
-    overlay.setAttribute("aria-label", "Select date");
+    overlay.setAttribute("aria-label", "Select Date");
 
     const card = document.createElement("div");
     card.className = "date-picker-card";
@@ -1145,6 +1369,14 @@ function openCustomTimePicker(timeInputEl) {
 
     const currentValue24 = timeInputEl.dataset.value24 || "";
     const slots = buildTimeSlots();
+    const dateInputEl = document.getElementById("date-input");
+    const selectedDateIso = dateInputEl?.dataset?.iso || bookingState.date || "";
+    const todayIso = formatIsoDate(new Date());
+    const isSameDayBooking = selectedDateIso === todayIso;
+    const now = new Date();
+    const nowMinutes = (now.getHours() * 60) + now.getMinutes();
+    const minLeadMinutes = 30;
+    const minBookableMinutes = nowMinutes + minLeadMinutes;
 
     const overlay = document.createElement("div");
     overlay.className = "time-picker-overlay";
@@ -1156,7 +1388,7 @@ function openCustomTimePicker(timeInputEl) {
 
     const title = document.createElement("div");
     title.className = "time-picker-title";
-    title.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Select time`;
+    title.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Select Time`;
 
     const slotsWrap = document.createElement("div");
     slotsWrap.className = "time-picker-slots";
@@ -1165,11 +1397,19 @@ function openCustomTimePicker(timeInputEl) {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "time-picker-slot";
-        if (value24 === currentValue24) btn.classList.add("time-picker-slot--selected");
+        const [slotH, slotM] = value24.split(":").map(Number);
+        const slotMinutes = (slotH * 60) + slotM;
+        const isPastSlot = isSameDayBooking && slotMinutes < minBookableMinutes;
+        if (isPastSlot) {
+            btn.classList.add("time-picker-slot--disabled");
+            btn.disabled = true;
+        }
+        if (!isPastSlot && value24 === currentValue24) btn.classList.add("time-picker-slot--selected");
         btn.textContent = label;
         btn.dataset.value24 = value24;
         btn.dataset.label = label;
         btn.addEventListener("click", () => {
+            if (btn.disabled) return;
             slotsWrap.querySelectorAll(".time-picker-slot--selected").forEach((b) => b.classList.remove("time-picker-slot--selected"));
             btn.classList.add("time-picker-slot--selected");
         });
@@ -1524,7 +1764,7 @@ function renderContactCard() {
         </div>
 
         <label class="booking-label">Full Name <span class="booking-required">*</span></label>
-        <input type="text" id="c-name" class="booking-input" placeholder="Your full name" autocomplete="name">
+        <input type="text" id="c-name" class="booking-input" placeholder="Your Full Name" autocomplete="name">
 
         <label class="booking-label">Phone Number <span class="booking-required">*</span></label>
         <input type="tel" id="c-phone" class="booking-input" placeholder="+91 98765 43210" autocomplete="tel">
@@ -1582,24 +1822,32 @@ window.toggleSelfBooking = function(checkbox) {
 // ── Submit contact & Ask for Description ──────────────────────────────
 window.submitContact = async function() {
     const name    = document.getElementById("c-name")?.value.trim();
-    const phone   = document.getElementById("c-phone")?.value.trim();
+    const phoneRaw = document.getElementById("c-phone")?.value.trim();
     const email   = document.getElementById("c-email")?.value.trim();
     const self_   = document.getElementById("c-self")?.checked;
     const relation= self_ ? "self" : document.getElementById("c-relation")?.value;
+    const phoneDigits = (phoneRaw || "").replace(/\D/g, "");
+    const phoneLocal = phoneDigits.length === 12 && phoneDigits.startsWith("91")
+        ? phoneDigits.slice(2)
+        : phoneDigits;
 
-    if (!name)   { showCardError("contact-card", "Please enter your full name."); return; }
-    if (!phone || !/^[+]?[\d\s\-()]{6,15}$/.test(phone.replace(/\s/g,''))) {
-        showCardError("contact-card", "Please enter a valid phone number."); return;
+    if (!name)   { showCardError("contact-card", "Please enter your Full Name."); return; }
+    if (/\d/.test(name)) {
+        showCardError("contact-card", "Full name should not contain numbers.");
+        return;
+    }
+    if (phoneLocal.length !== 10) {
+        showCardError("contact-card", "Please enter a valid 10-digit phone number carefully."); return;
     }
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         showCardError("contact-card", "Please enter a valid email address."); return;
     }
     if (!relation) { showCardError("contact-card", "Please select your relation to the patient."); return; }
 
-    bookingState = { ...bookingState, name, phone, email, relation, forSelf: self_, step: 3 };
+    bookingState = { ...bookingState, name, phone: phoneLocal, email, relation, forSelf: self_, step: 3 };
 
     removeAllChips();
-    appendMessage(`${name} | ${phone} | ${email}`, "user");
+    appendMessage(`${name} | ${phoneLocal} | ${email}`, "user");
 
     // If user is editing only contact details from review, return to review directly.
     if (bookingState.editingFromReviewTarget === "contact") {
@@ -1626,72 +1874,38 @@ window.submitContact = async function() {
  */
 function getDescriptionPromptForService(service) {
     const svc = (service || "").toLowerCase();
-    const tip = "\n\nTip: You can type or use the mic.";
+    const tip = "\nTip: Type or use the mic.";
     if (svc.includes("doula")) {
-        return "Please tell us a little about your situation so we can match you with the right doula.\n\nWhat to include:\n• Type of support you need (birth, labour, postpartum)\n• Any concerns or special requests\n• Your pregnancy stage" + tip;
+        return "Tell us your needs so we can match you with the right doula.\nInclude: support type, concerns, and pregnancy stage." + tip;
     }
     if (svc.includes("nanny")) {
-        return "Tell us about your childcare needs so we can find the right fit.\n\nWhat to include:\n• Hours or days you need care\n• Child's routine or schedule\n• Any special care requirements" + tip;
+        return "Tell us your childcare needs so we can match you with the right nanny.\nInclude: care timing, child routine, and special requirements." + tip;
     }
     if (svc.includes("lactation")) {
-        return "Share a bit about your feeding situation so we can match you with the right support.\n\nWhat to include:\n• Current feeding goals or challenges\n• Baby's age (if relevant)\n• Any specific concerns" + tip;
+        return "Tell us your feeding needs so we can match you with the right support.\nInclude: feeding challenge, baby's age, and concerns." + tip;
     }
     if (svc.includes("doctor") || svc.includes("consultation")) {
-        return "Briefly tell us why you're booking this consultation.\n\nWhat to include:\n• Main concern or symptom\n• How long it's been going on\n• Any relevant history" + tip;
+        return "Tell us why you need this consultation.\nInclude: main symptom, duration, and relevant history." + tip;
     }
-    return "Please tell us a little about your situation so we can help.\n\nWhat to include:\n• Why you need this booking\n• Any specific concerns or requests" + tip;
+    return "Tell us your needs so we can help.\nInclude: reason for booking and any concerns." + tip;
 }
 
 /**
- * Validates the user's booking description. Rejects too short, unclear, or spam-like input.
+ * Lightweight local check before LLM validation.
+ * Keep this permissive so the backend LLM can respond naturally in context.
  * @returns {{ valid: boolean, message?: string }}
  */
 function validateBookingDescription(text) {
     const trimmed = (text || "").trim();
-    const minLength = 20;
-    const minWords = 3;
 
     if (!trimmed) {
         return {
             valid: false,
-            message: "Please share a few words about your situation so we can help.\n\nTip: You can type or use the mic.",
+            message: "Tell us your needs so we can help.\nInclude: reason for booking and any concerns.\nTip: Type or use the mic.",
         };
     }
 
-    if (trimmed.length < minLength) {
-        return {
-            valid: false,
-            message: "That's a bit brief. A few sentences help us match you with the right care.\n\nTip: You can type or use the mic.",
-        };
-    }
-
-    const words = trimmed.split(/\s+/).filter(Boolean);
-    if (words.length < minWords) {
-        return {
-            valid: false,
-            message: "Please add a bit more detail so we can support you better.\n\nTip: You can type or use the mic.",
-        };
-    }
-
-    // Reject if mostly non-letters (numbers, symbols, repeated chars)
-    const lettersOnly = trimmed.replace(/\s/g, "").replace(/[^a-zA-Z]/g, "");
-    const letterRatio = lettersOnly.length / Math.max(trimmed.replace(/\s/g, "").length, 1);
-    if (letterRatio < 0.4) {
-        return {
-            valid: false,
-            message: "We couldn't quite understand that. Please describe your situation in a few words or sentences.\n\nTip: You can try the mic to speak your response.",
-        };
-    }
-
-    // Reject single word or same word repeated (likely spam)
-    const uniqueWords = new Set(words.map(w => w.toLowerCase()));
-    if (uniqueWords.size < 2 && words.length < 8) {
-        return {
-            valid: false,
-            message: "Please share a bit more about your needs so we can help.\n\nTip: You can type or use the mic.",
-        };
-    }
-
+    // Non-empty input should go to backend LLM for contextual handling.
     return { valid: true };
 }
 
@@ -1702,6 +1916,7 @@ function renderReviewBookingCard() {
         ? new Date(date + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })
         : "—";
     const formattedTime = bookingState.time ? formatTime(bookingState.time) : "—";
+    const serviceLabel = formatServiceForDisplay(bookingState.service);
 
     const card = document.createElement("div");
     card.className = "booking-card confirmation-card fade-in";
@@ -1719,7 +1934,7 @@ function renderReviewBookingCard() {
             </div>
             <div class="confirm-row">
                 <span class="confirm-key">Service</span>
-                <span class="confirm-val">${bookingState.service || "—"}</span>
+                <span class="confirm-val">${serviceLabel}</span>
             </div>
             ${(bookingState.service || "").toLowerCase().includes("nanny") && bookingState.childAgeRange ? `
             <div class="confirm-row">
@@ -1763,13 +1978,13 @@ window.needToChangeBooking = function () {
     row.className = "options-container chips-container";
     row.id = "review-change-options";
     [
-        { label: "Schedule (date, time, location)", value: "schedule" },
-        { label: "Contact details", value: "contact" },
+        { label: "Schedule (Date, Time, Location)", value: "schedule" },
+        { label: "Contact Details", value: "contact" },
         { label: "Description", value: "description" },
     ].forEach(({ label, value }) => {
         const btn = document.createElement("button");
         btn.type = "button";
-        btn.className = "option-btn fade-in";
+        btn.className = "option-btn option-btn--review-change fade-in";
         btn.textContent = label;
         btn.addEventListener("click", () => {
             document.getElementById("review-change-options")?.remove();
@@ -1838,6 +2053,7 @@ function renderConfirmation(booking) {
         : "—";
     const formattedTime = bookingState.time ? formatTime(bookingState.time) : "—";
     const paymentStatus = (booking && (booking.payment_status || booking.paymentStatus)) || bookingState.paymentStatus || "Pending";
+    const serviceLabel = formatServiceForDisplay(bookingState.service);
 
     const card = document.createElement("div");
     card.className = "confirmation-card fade-in";
@@ -1859,7 +2075,7 @@ function renderConfirmation(booking) {
             </div>
             <div class="confirm-row">
                 <span class="confirm-key">Service</span>
-                <span class="confirm-val">${bookingState.service || "—"}</span>
+                <span class="confirm-val">${serviceLabel}</span>
             </div>
             ${(bookingState.service || "").toLowerCase().includes("nanny") && bookingState.childAgeRange ? `
             <div class="confirm-row">
@@ -1895,7 +2111,7 @@ function renderConfirmation(booking) {
         </div>
 
         <p style="text-align:center;margin-top:16px;font-size:13px;color:#9CA3AF;">Thank you for choosing Motherly</p>
-        <button onclick="resetChat()" class="booking-btn" style="margin-top:12px;background:#F3F4F6;color:#1F2937;">Start New Booking</button>
+        <button onclick="resetChat()" class="booking-btn booking-btn--restart" style="margin-top:12px;background:#FAF5F5;color:#1F2937;border:1px solid #D1D5DB;box-shadow:none;">Start New Booking</button>
     `;
     messagesContainer.appendChild(card);
     scrollToBottomIfNearBottom();
@@ -1980,6 +2196,7 @@ async function appendMessage(text, sender, isWelcome = false) {
         if (optionsRow) scrollToShowOptions(optionsRow);
         else scrollToRevealMessage(row);
     }
+    saveSessionSnapshot();
 }
 
 /**
@@ -2066,7 +2283,7 @@ function setMeenaTyping(active) {
         headerSubtitle.style.color = "#C22627";
         headerSubtitle.style.fontWeight = "600";
     } else {
-        headerSubtitle.textContent = headerSubtitle.dataset.oldText || "";
+        headerSubtitle.textContent = headerSubtitle.dataset.oldText || DEFAULT_STEP_SUBTITLE;
         headerSubtitle.style.color = "";
         headerSubtitle.style.fontWeight = "";
     }

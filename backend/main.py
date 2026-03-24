@@ -92,7 +92,8 @@ class ValidateDescriptionRequest(BaseModel):
 class ValidateDescriptionResponse(BaseModel):
     """Response from the /validate-booking-description endpoint."""
     valid: bool
-    message: Optional[str] = None  # Shown to user when valid=False
+    message: Optional[str] = None  # Shown to user when valid=False, or acknowledgement when switching service
+    redirect_service: Optional[str] = None  # doctor | doula | lactation | nanny — frontend updates booking
 
 
 # ── Helpers ─────────────────────────────────────────────────────────
@@ -117,8 +118,12 @@ async def validate_description(request: ValidateDescriptionRequest):
     Check if the user's booking description is relevant and valid for the service.
     Used before finalizing the booking to reject off-topic or invalid responses.
     """
-    valid, message = validate_booking_description(request.description, request.service)
-    return ValidateDescriptionResponse(valid=valid, message=message if not valid else None)
+    valid, message, redirect = validate_booking_description(request.description, request.service)
+    return ValidateDescriptionResponse(
+        valid=valid,
+        message=message if (not valid or redirect) else None,
+        redirect_service=redirect,
+    )
 
 
 # ── Chat endpoint ───────────────────────────────────────────────────

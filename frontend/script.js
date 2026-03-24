@@ -16,20 +16,15 @@ let bookingState = {};          // tracks 4-step booking data
 let isRecording = false;
 let speechRecognition = null;
 let detectedLocation = null;   // pre-fetched GPS address, filled on load
+let placesAutocomplete = null;
 
 // ── Floating chat state: tooltip once, panel open/close ─────────────
 let userHasOpenedChat = false;
+let chatInitialized = false;
 let tooltipTimeoutId = null;
 
-// ── Auto-open on load ─────────────────────────────────────────────────
+// ── Initialize chat on first click ────────────────────────────────────
 window.addEventListener("DOMContentLoaded", () => {
-    prefetchLocation();
-
-    setTimeout(async () => {
-        messagesContainer.innerHTML = "";
-        await sendWelcomeMessage();
-        updateProgress(0);
-    }, 1000);
 
     // Floating UI: show welcoming tooltip on first load (hide after 7s or on first open)
     const tooltipEl = document.getElementById("chat-tooltip");
@@ -76,6 +71,17 @@ function openChat() {
     const panelEl = document.getElementById("chat-panel");
     const floatingChatEl = document.querySelector(".floating-chat");
     if (!panelEl || !floatingChatEl) return;
+
+    // First time opening the chat: initialize and pre-fetch location
+    if (!chatInitialized) {
+        chatInitialized = true;
+        prefetchLocation();
+        
+        // Clear container and send welcome message
+        messagesContainer.innerHTML = "";
+        sendWelcomeMessage();
+        updateProgress(0);
+    }
 
     userHasOpenedChat = true;
     hideTooltip();
@@ -147,6 +153,115 @@ function handleSend() {
     sendMessage(userInput.value.trim());
 }
 
+/**
+ * Detect booking / menu intent from free text or voice (same flows as welcome chips).
+ * Returns null if no match.
+ */
+function detectBookingIntentFromText(raw) {
+    let m = (raw || "").toLowerCase().trim();
+    // Common misspellings → match lactation / consultant flows
+    m = m
+        .replace(/\blacatation\b/g, "lactation")
+        .replace(/\blacation\b/g, "lactation")
+        .replace(/\blactatation\b/g, "lactation")
+        .replace(/\blaction\b/g, "lactation")
+        .replace(/\bgynocologist\b/gi, "gynecologist");
+    if (!m) return null;
+
+    if (
+        /\b(contact support|contact motherly|reach support|talk to (someone|support|team))\b/.test(m) ||
+        (m.includes("contact") && m.includes("support"))
+    ) {
+        return "contact";
+    }
+    if (/\b(about motherly|what is motherly|who are you|tell me about motherly)\b/.test(m)) {
+        return "about";
+    }
+    if (/\b(prenatal nutrition|pregnancy nutrition|nutrition during pregnancy|pregnancy diet)\b/.test(m)) {
+        return "prenatal";
+    }
+    if (
+        /\b(lactation|breastfeeding|breast feeding|nursing|feeding support|book lactation|lactation consultant|lactation cons)\b/.test(m) ||
+        (/\bconsultant\b/.test(m) && /\b(lact|breast|feed|nurs|milk)\b/.test(m))
+    ) {
+        return "lactation";
+    }
+    if (
+        /\b(book (a )?doctor|doctor consultation|speak to a doctor|video consultation|in[\s-]?clinic|clinic visit|online consultation)\b/.test(m) ||
+        /\b(gynecologist|gynaecologist|obgyn|ob-gyn|obstetrician|women'?s health (doctor)?)\b/.test(m) ||
+        (m.includes("doctor") && (m.includes("book") || m.includes("consult"))) ||
+        (/\bconsult\b/.test(m) && /\b(gyn|obstetric|ob[\s-]?gyn|doctor|physician|specialist)\b/.test(m))
+    ) {
+        return "doctor";
+    }
+    if (/\b(nanny|childcare|babysit|baby sitter|book nanny)\b/.test(m)) {
+        return "nanny";
+    }
+    if (
+        /\b(doula|book doula|book a doula|need a doula|hire a doula|birth support|labou?r support)\b/.test(m)
+    ) {
+        return "doula";
+    }
+    return null;
+}
+
+/**
+ * After /chat replies, show the same option chips as the welcome buttons when intent matches.
+ * Does not duplicate user messages or alter booking cards already on screen.
+ */
+function maybeRenderBookingChipsAfterChat(userText) {
+    if (bookingState.awaitingDescription) return;
+    if (document.querySelector(".booking-card")) return;
+
+    const intent = detectBookingIntentFromText(userText);
+    if (!intent) return;
+
+    updateProgress(1);
+
+    switch (intent) {
+        case "doula":
+            bookingState.subType = "Doula";
+            renderSubOptions("doula-reason", [
+                { label: "Pregnancy Support", desc: "Guidance During Pregnancy" },
+                { label: "Labor & Delivery", desc: "Support During Birth" },
+                { label: "After Birth Care", desc: "Post-Natal Recovery Help" },
+                { label: "Breastfeeding Help", desc: "Nursing & Lactation Support" },
+            ]);
+            break;
+        case "nanny":
+            bookingState = { step: 1, service: "Nanny" };
+            setTimeout(() => renderNannyChildDetailsCard(), 400);
+            break;
+        case "doctor":
+            renderSubOptions("consult-mode", [
+                { label: "Online Consultation", desc: "Video call with doctor" },
+                { label: "In-Clinic Visit", desc: "Visit our clinic in person" },
+            ]);
+            break;
+        case "lactation":
+            renderSubOptions("lactation-mode", [
+                { label: "Home Visit", desc: "Consultant visits you" },
+                { label: "Online Session", desc: "Video call support" },
+                { label: "Clinic Appointment", desc: "Visit our clinic" },
+            ]);
+            break;
+        case "prenatal":
+            renderPrenatalLearnOptions();
+            break;
+        case "about":
+            renderSubOptions("about-next", [
+                { label: "Book a Service", desc: "Start booking now" },
+                { label: "Contact Support", desc: "Talk to our team" },
+            ]);
+            break;
+        case "contact":
+            setTimeout(() => renderContactSupportCard(), 400);
+            break;
+        default:
+            break;
+    }
+}
+
 async function sendMessage(text) {
     if (!text || !text.trim()) return;
 
@@ -182,9 +297,29 @@ async function sendMessage(text) {
             });
             const data = await resp.json().catch(() => ({}));
             showTyping(false);
+            const redirectSlug = (data.redirect_service || "").toLowerCase();
+            const redirectServiceMap = {
+                doctor: "Doctor Consultation",
+                doula: "Doula — Support",
+                lactation: "Lactation Consultant",
+                nanny: "Nanny",
+            };
+            if (redirectSlug && redirectServiceMap[redirectSlug]) {
+                bookingState.service = redirectServiceMap[redirectSlug];
+                bookingState.description = text.trim();
+                bookingState.awaitingDescription = false;
+                bookingState.editingFromReviewTarget = null;
+                const switchMsg = (data.message && data.message.trim()) || "";
+                if (switchMsg) await appendBotMessage(switchMsg);
+                renderReviewBookingCard();
+                setInputEnabled(true);
+                setTimeout(() => userInput.focus(), 100);
+                return;
+            }
             if (data.valid) {
                 bookingState.description = text.trim();
                 bookingState.awaitingDescription = false;
+                bookingState.editingFromReviewTarget = null;
                 renderReviewBookingCard();
                 return;
             }
@@ -219,6 +354,8 @@ async function sendMessage(text) {
 
         chatHistory.push({ role: "user", content: text.trim() });
         chatHistory.push({ role: "assistant", content: data.response });
+
+        maybeRenderBookingChipsAfterChat(text.trim());
 
     } catch (err) {
         console.error("Chat error:", err);
@@ -280,8 +417,7 @@ function closeChat() {
 
 // Expose for inline handlers and external use
 if (typeof window !== "undefined") {
-    window.closeChat = closeChat;
-    window.openChat = openChat;
+    // Already defined as standalone functions above
 }
 
 // ── Progress indicator ────────────────────────────────────────────────
@@ -305,30 +441,7 @@ async function sendWelcomeMessage() {
     const text = "Hi, I'm **Mothrly Assistant**. I can help you book a doula or consultation.\n\n**What do you need help with today?**";
 
     await appendMessage(text, "bot", true);
-
-    const optionsRow = document.createElement("div");
-    optionsRow.className = "options-container chips-container";
-
-    const opts = [
-        { label: "Book Doula",                icon: getIconForLabel("doula") },
-        { label: "Book Nanny",                icon: getIconForLabel("nanny") },
-        { label: "Book Doctor Consultation",  icon: getIconForLabel("book doctor consultation") },
-        { label: "Book Lactation Consultant", icon: getIconForLabel("book lactation consultant") },
-        { label: "Prenatal Nutrition",        icon: getIconForLabel("prenatal nutrition") },
-        { label: "About Motherly",            icon: getIconForLabel("about motherly") },
-        { label: "Contact Support",           icon: getIconForLabel("contact support") },
-    ];
-
-    opts.forEach(({ label, icon }) => {
-        const btn = document.createElement("button");
-        btn.className = "option-btn fade-in";
-        btn.innerHTML = icon ? `<span class="btn-icon">${icon}</span> ${label}` : label;
-        btn.addEventListener("click", () => handleServiceSelection(label));
-        optionsRow.appendChild(btn);
-    });
-
-    messagesContainer.appendChild(optionsRow);
-    scrollToShowOptions(optionsRow);
+    sendWelcomeChips();
 }
 
 // ── Step 1 — Service Selection (with sub-options) ────────────────────
@@ -347,10 +460,10 @@ async function handleServiceSelection(service) {
         await appendBotMessage("Great! What kind of support do you need?");
         bookingState.subType = "Doula";
         renderSubOptions("doula-reason", [
-            { label: "Pregnancy Support",    desc: "Guidance during pregnancy" },
-            { label: "Labor & Delivery",     desc: "Support during birth" },
-            { label: "After Birth Care",     desc: "Post-natal recovery help" },
-            { label: "Breastfeeding Help",   desc: "Nursing & lactation support" },
+            { label: "Pregnancy Support",    desc: "Guidance During Pregnancy" },
+            { label: "Labor & Delivery",     desc: "Support During Birth" },
+            { label: "After Birth Care",     desc: "Post-Natal Recovery Help" },
+            { label: "Breastfeeding Help",   desc: "Nursing & Lactation Support" },
         ]);
         return;
     }
@@ -411,7 +524,7 @@ async function handleServiceSelection(service) {
 }
 
 // ── Prenatal Nutrition: "What would you like to learn about?" (8 options, 2-col grid + SVG icons)
-var PRENATAL_LEARN_OPTIONS = [
+const PRENATAL_LEARN_OPTIONS = [
     { label: "Pregnancy Diet Plan", icon: "diet" },
     { label: "Baby Brain Development Foods", icon: "brain" },
     { label: "Managing Pregnancy Symptoms with Food", icon: "symptoms" },
@@ -438,6 +551,43 @@ function getPrenatalTopicIcon(iconKey) {
     return s + '</svg>';
 }
 
+// ── Prenatal Nutrition: Curated important tips for quick reference ─────────
+const PRENATAL_TIPS = {
+    "Pregnancy Diet Plan": "A balanced diet is key! Aim for 3 solid meals and 2 healthy snacks.\n\n**Quick Tips:**\n• **Protein:** Eggs, lentils, or lean meat in every meal.\n• **Veggies:** Half your plate should be colorful vegetables.\n• **Grains:** Opt for whole grains like brown rice or whole wheat.\n• **Snacks:** Fresh fruits or yogurt are great choices.",
+    "Baby Brain Development Foods": "Support your baby's growth with these essential nutrients!\n\n**Best Foods:**\n• **DHA (Omega-3):** Walnuts, flaxseeds, or cooked fish (2x per week).\n• **Folate:** Spinach, Broccoli, and citrus fruits.\n• **Iron:** Pomegranate, beetroots, and spinach to keep energy up.\n• **Iodine:** Use iodized salt in moderation.",
+    "Managing Pregnancy Symptoms with Food": "Small changes to what you eat can help you feel much better.\n\n**Common Fixes:**\n• **Nausea:** Ginger tea or dry crackers first thing in the morning.\n• **Heartburn:** Eat smaller meals often; avoid spicy/fried foods before bed.\n• **Constipation:** Increase fiber (lentils, oats) and drink 2-3L of water.\n• **Swelling:** Limit extra salt and stay well hydrated.",
+    "Foods to Avoid During Pregnancy": "Safety first! Steer clear of these to protect you and your baby.\n\n**Avoid These:**\n• **Raw Foods:** No raw meat, uncooked eggs, or unwashed veg.\n• **Unpasteurized Dairy:** Avoid raw milk and soft cheeses like Brie/Feta.\n• **High Mercury:** Avoid large fish like Shark or King Mackerel.\n• **Caffeine:** Limit to 1 small cup of coffee or tea per day.",
+    "Hydration & Healthy Drinks": "Staying hydrated prevents fatigue and keeps your baby's environment safe.\n\n**What to Sip:**\n• **Water:** Aim for 8-10 glasses daily.\n• **Coconut Water:** Great for natural electrolytes.\n• **Buttermilk:** Excellent for cooling the body and digestion.\n• **Fresh Juice:** Stick to homemade versions without added sugar.",
+    "Healthy Weight Gain Guide": "It's about nutrient density, not just 'eating for two'.\n\n**Guidelines:**\n• **First Trimester:** Minimal extra calories needed (focus on quality).\n• **Second Trimester:** Add about 300 extra calories (like a fruit + yogurt snack).\n• **Third Trimester:** Add about 450 extra calories.\n• **Tip:** Gain weight gradually and stay active with walking.",
+    "Postpartum Recovery Diet": "Your body needs help to heal after delivery.\n\n**Recovery Tips:**\n• **Soft Foods:** Warm porridges and soups are easier on digestion.\n• **Laddus/Dry Fruits:** Traditional nursing snacks help with energy.\n• **Hydration:** Crucial for milk production (3-4L per day).\n• **Iron & Calcium:** Focus on ragi, milk, and dates.",
+    "Daily Pregnancy Diet Recommendation": "Keep it simple with the 'Mothrly Plate' approach.\n\n**Daily Proportions:**\n• **50% Vegetables:** Greens, gourds, and local seasonal veg.\n• **25% Protein:** Dals, eggs, paneer, or low-mercury fish.\n• **25% Carbohydrates:** Millets, red rice, or whole wheat chapatis.\n• **Bonus:** A piece of seasonal fruit with every lunch."
+};
+
+// ── Text casing helpers (Option boxes) ─────────────────────────────────
+function sentenceCaps(input) {
+    if (input == null) return "";
+    const s = String(input);
+    // Capitalize first non-space char, and first char after sentence boundaries (.?! or newline)
+    let out = "";
+    let capNext = true;
+    for (let i = 0; i < s.length; i++) {
+        const ch = s[i];
+        if (capNext && /[a-zA-Z]/.test(ch)) {
+            out += ch.toUpperCase();
+            capNext = false;
+            continue;
+        }
+        out += ch;
+        if (ch === "." || ch === "!" || ch === "?" || ch === "\n") {
+            capNext = true;
+        } else if (!/\s/.test(ch)) {
+            // Once we hit any non-space character in a sentence, stop auto-capping until boundary
+            capNext = false;
+        }
+    }
+    return out;
+}
+
 function renderPrenatalLearnOptions() {
     var row = document.createElement("div");
     row.className = "options-container chips-container prenatal-learn-grid";
@@ -445,7 +595,7 @@ function renderPrenatalLearnOptions() {
     PRENATAL_LEARN_OPTIONS.forEach(function (opt) {
         var btn = document.createElement("button");
         btn.className = "option-btn option-btn--prenatal fade-in";
-        btn.innerHTML = '<span class="btn-icon">' + getPrenatalTopicIcon(opt.icon) + '</span> ' + opt.label;
+        btn.innerHTML = '<span class="btn-icon">' + getPrenatalTopicIcon(opt.icon) + '</span> ' + sentenceCaps(opt.label);
         btn.addEventListener("click", function () { handleSubOptionSelection("prenatal-learn", opt.label); });
         row.appendChild(btn);
     });
@@ -465,8 +615,8 @@ function renderSubOptions(context, options) {
         btn.style.textAlign = "left";
         btn.innerHTML = `
             <span style="display:flex;flex-direction:column;gap:2px;">
-                <span style="font-weight:600;font-size:13px;">${label}</span>
-                ${desc ? `<span style="font-size:11px;color:#9CA3AF;font-weight:400;">${desc}</span>` : ""}
+                <span style="font-weight:600;font-size:13px;">${sentenceCaps(label)}</span>
+                ${desc ? `<span style="font-size:11px;color:#9CA3AF;font-weight:400;">${sentenceCaps(desc)}</span>` : ""}
             </span>`;
         btn.addEventListener("click", () => handleSubOptionSelection(context, label));
         row.appendChild(btn);
@@ -501,10 +651,10 @@ async function handleSubOptionSelection(context, subOption) {
         bookingState.subType = subOption;
         await appendBotMessage(`Got it! You'd like a **${subOption}**.\n\nWhat kind of support do you need?`);
         renderSubOptions("doula-reason", [
-            { label: "Pregnancy Support",    desc: "Guidance during pregnancy" },
-            { label: "Labor & Delivery",     desc: "Support during birth" },
-            { label: "After Birth Care",     desc: "Post-natal recovery help" },
-            { label: "Breastfeeding Help",   desc: "Nursing & lactation support" },
+            { label: "Pregnancy Support",    desc: "Guidance During pregnancy" },
+            { label: "Labor & Delivery",     desc: "Support During Birth" },
+            { label: "After Birth Care",     desc: "Post-Natal Recovery Help" },
+            { label: "Breastfeeding Help",   desc: "Nursing & Lactation Support" },
         ]);
         return;
     }
@@ -534,8 +684,19 @@ async function handleSubOptionSelection(context, subOption) {
         return;
     }
 
-    // ── Prenatal learn (topic selected) → send to chat for nutrition content ────────────────────
+    // ── Prenatal learn (topic selected) → Provide curated tips immediately ───────────────────
     if (context === "prenatal-learn") {
+        const localTip = PRENATAL_TIPS[subOption];
+        
+        if (localTip) {
+            await appendBotMessage(localTip);
+            chatHistory.push({ role: "user", content: subOption });
+            chatHistory.push({ role: "assistant", content: localTip });
+            setTimeout(function () { userInput.focus(); }, 100);
+            return;
+        }
+
+        // Fallback to chat API if tip not found locally
         setInputEnabled(false);
         showTyping(true);
         try {
@@ -547,13 +708,13 @@ async function handleSubOptionSelection(context, subOption) {
             if (!resp.ok) throw new Error("Chat request failed");
             var data = await resp.json();
             showTyping(false);
-            await appendMessage(data.response, "bot");
+            await appendBotMessage(data.response);
             chatHistory.push({ role: "user", content: subOption });
             chatHistory.push({ role: "assistant", content: data.response });
         } catch (err) {
             console.error("Prenatal chat error:", err);
             showTyping(false);
-            await appendMessage("Sorry, I couldn't load that topic. Please try again.", "bot");
+            await appendBotMessage("I'm sorry, I'm having a little trouble providing those details right now. Please try again soon.");
         }
         setInputEnabled(true);
         setTimeout(function () { userInput.focus(); }, 100);
@@ -569,26 +730,54 @@ async function handleSubOptionSelection(context, subOption) {
 
 // ── Show only the main option chips (for re-use) ──────────────────────
 function sendWelcomeChips() {
-    const optionsRow = document.createElement("div");
-    optionsRow.className = "options-container chips-container";
+    const optionsWrap = document.createElement("div");
+    optionsWrap.className = "welcome-options-wrap chips-container";
+
+    const primaryGrid = document.createElement("div");
+    primaryGrid.className = "welcome-options-main";
+
+    const quickActionsBar = document.getElementById("quick-actions-bar");
+    if (quickActionsBar) {
+        quickActionsBar.innerHTML = "";
+        quickActionsBar.classList.remove("quick-actions-bar--visible");
+    }
+
     const opts = [
-        { label: "Book Doula",                icon: getIconForLabel("doula") },
-        { label: "Book Nanny",                icon: getIconForLabel("nanny") },
-        { label: "Book Doctor Consultation",  icon: getIconForLabel("book doctor consultation") },
-        { label: "Book Lactation Consultant", icon: getIconForLabel("book lactation consultant") },
-        { label: "Prenatal Nutrition",        icon: getIconForLabel("prenatal nutrition") },
-        { label: "About Motherly",            icon: getIconForLabel("about motherly") },
-        { label: "Contact Support",           icon: getIconForLabel("contact support") },
+        { label: "Book Doula" },
+        { label: "Book Nanny" },
+        { label: "Book Doctor Consultation" },
+        { label: "Book Lactation Consultant" },
+        { label: "Prenatal Nutrition" },
+        { label: "About Motherly" },
+        { label: "Contact Support" },
     ];
-    opts.forEach(({ label, icon }) => {
+
+    const secondarySet = new Set(["Contact Support", "Prenatal Nutrition", "About Motherly"]);
+    const secondaryOrder = ["Contact Support", "Prenatal Nutrition", "About Motherly"];
+    const secondaryButtons = new Map();
+
+    opts.forEach(({ label }) => {
         const btn = document.createElement("button");
-        btn.className = "option-btn fade-in";
-        btn.innerHTML = icon ? `<span class="btn-icon">${icon}</span> ${label}` : label;
+        const isSecondary = secondarySet.has(label);
+        btn.className = `option-btn fade-in ${isSecondary ? "option-btn--welcome-secondary" : "option-btn--welcome-primary"}`;
+        btn.textContent = sentenceCaps(label);
         btn.addEventListener("click", () => handleServiceSelection(label));
-        optionsRow.appendChild(btn);
+        if (isSecondary) secondaryButtons.set(label, btn);
+        else primaryGrid.appendChild(btn);
     });
-    messagesContainer.appendChild(optionsRow);
-    scrollToShowOptions(optionsRow);
+
+    optionsWrap.appendChild(primaryGrid);
+    messagesContainer.appendChild(optionsWrap);
+
+    if (quickActionsBar) {
+        secondaryOrder.forEach((label) => {
+            const btn = secondaryButtons.get(label);
+            if (btn) quickActionsBar.appendChild(btn);
+        });
+        quickActionsBar.classList.add("quick-actions-bar--visible");
+    }
+
+    scrollToShowOptions(optionsWrap);
 }
 
 // ── Step 2a — Nanny: Child details (age + names) ─────────────────────
@@ -684,8 +873,11 @@ function renderScheduleCard() {
         </div>
 
         <label class="booking-label">Location <span class="booking-required">*</span></label>
-        <div style="position:relative;">
-            <input type="text" id="loc-input" class="booking-input" placeholder="Enter your location..." autocomplete="off">
+        <div class="location-row">
+            <div class="location-input-wrap">
+                <input type="text" id="loc-input" class="booking-input booking-input--location" placeholder="Enter your location..." autocomplete="off">
+                <button type="button" id="loc-clear-btn" class="location-clear-btn" title="Clear location" aria-label="Clear location">×</button>
+            </div>
             <button onclick="detectLocation()" class="detect-btn" title="Detect my location">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
                 Detect
@@ -708,6 +900,8 @@ function renderScheduleCard() {
 
     // Pre-fill location if already detected from page-load GPS request
     prefillLocationField();
+    initLocationClearControl();
+    initLocationAutocomplete();
     initSchedulePickers(todayStr);
 }
 
@@ -716,47 +910,14 @@ function initSchedulePickers(todayStr) {
     const timeEl = document.getElementById("time-input");
     if (!dateEl || !timeEl) return;
 
-    // ── Date: keep Material picker if available ────────────────────────
-    if (window.moment && window.mdDateTimePicker) {
-        const existingDateIso = dateEl.dataset.iso || bookingState.date || null;
-        const minDate = window.moment(todayStr, "YYYY-MM-DD");
-        const maxDate = window.moment().add(1, "year").endOf("day");
-        const initDate = existingDateIso
-            ? window.moment(existingDateIso, "YYYY-MM-DD")
-            : window.moment().startOf("day");
-
-        const dateDialog = new window.mdDateTimePicker.default({
-            type: "date",
-            init: initDate,
-            past: minDate,
-            future: maxDate,
-            ok: "OK",
-            cancel: "CANCEL",
-            orientation: "PORTRAIT",
-        });
-        dateDialog.trigger = dateEl;
-        dateEl._mddtp = dateDialog;
-
-        dateEl.addEventListener("onOk", function () {
-            const m = dateDialog.time;
-            if (!m || !m.isValid()) return;
-            dateEl.dataset.iso = m.format("YYYY-MM-DD");
-            dateEl.value = m.format("DD MMM YYYY");
-        });
-
-        const openDate = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setTimeout(() => {
-                dateDialog.toggle();
-                setTimeout(mountDatePickerIntoChatPanel, 0);
-            }, 0);
-        };
-        dateEl.addEventListener("pointerup", openDate);
-    } else {
-        dateEl.readOnly = false;
-        dateEl.placeholder = "DD MMM YYYY";
-    }
+    // ── Date: custom in-panel calendar widget ──────────────────────────
+    const openDatePicker = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openCustomDatePicker(dateEl, todayStr);
+    };
+    dateEl.addEventListener("pointerup", openDatePicker);
+    dateEl.addEventListener("click", openDatePicker);
 
     // ── Time: custom in-panel widget (no external library) ─────────────
     timeEl.addEventListener("pointerup", (e) => {
@@ -771,14 +932,189 @@ function initSchedulePickers(todayStr) {
     });
 }
 
-function mountDatePickerIntoChatPanel() {
+function parseIsoDate(isoDate) {
+    if (!isoDate || typeof isoDate !== "string") return null;
+    const [y, m, d] = isoDate.split("-").map(Number);
+    if (!y || !m || !d) return null;
+    return new Date(y, m - 1, d);
+}
+
+function formatIsoDate(dateObj) {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, "0");
+    const d = String(dateObj.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+}
+
+function formatDisplayDate(dateObj) {
+    return dateObj.toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+    });
+}
+
+function sameDay(a, b) {
+    return a.getFullYear() === b.getFullYear()
+        && a.getMonth() === b.getMonth()
+        && a.getDate() === b.getDate();
+}
+
+function isDateInRange(dateObj, minDate, maxDate) {
+    return dateObj >= minDate && dateObj <= maxDate;
+}
+
+function openCustomDatePicker(dateInputEl, todayStr) {
     const panelEl = document.getElementById("chat-panel");
     if (!panelEl) return;
-    const activePicker = Array.from(document.querySelectorAll(".mddtp-picker"))
-        .find(el => !el.classList.contains("mddtp-picker--inactive"));
-    if (!activePicker) return;
-    if (!panelEl.contains(activePicker)) panelEl.appendChild(activePicker);
-    activePicker.classList.add("mddtp-picker--in-chat");
+
+    const existing = panelEl.querySelector(".date-picker-overlay");
+    if (existing) existing.remove();
+
+    const minDate = parseIsoDate(todayStr) || new Date();
+    minDate.setHours(0, 0, 0, 0);
+    const maxDate = new Date(minDate);
+    maxDate.setFullYear(maxDate.getFullYear() + 1);
+    maxDate.setHours(23, 59, 59, 999);
+
+    const savedIso = dateInputEl.dataset.iso || bookingState.date || "";
+    const savedDate = parseIsoDate(savedIso);
+    let selectedDate = savedDate && isDateInRange(savedDate, minDate, maxDate) ? savedDate : null;
+    let viewingDate = selectedDate ? new Date(selectedDate) : new Date(minDate);
+
+    const overlay = document.createElement("div");
+    overlay.className = "date-picker-overlay";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-label", "Select date");
+
+    const card = document.createElement("div");
+    card.className = "date-picker-card";
+
+    const header = document.createElement("div");
+    header.className = "date-picker-header";
+
+    const prevBtn = document.createElement("button");
+    prevBtn.type = "button";
+    prevBtn.className = "date-picker-nav";
+    prevBtn.textContent = "‹";
+
+    const title = document.createElement("span");
+    title.className = "date-picker-title";
+
+    const nextBtn = document.createElement("button");
+    nextBtn.type = "button";
+    nextBtn.className = "date-picker-nav";
+    nextBtn.textContent = "›";
+
+    header.append(prevBtn, title, nextBtn);
+
+    const daysRow = document.createElement("div");
+    daysRow.className = "date-picker-days";
+    ["MO", "TU", "WE", "TH", "FR", "SA", "SU"].forEach((d) => {
+        const day = document.createElement("span");
+        day.textContent = d;
+        daysRow.appendChild(day);
+    });
+
+    const datesGrid = document.createElement("div");
+    datesGrid.className = "date-picker-dates";
+
+    const actions = document.createElement("div");
+    actions.className = "date-picker-actions";
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "date-picker-btn date-picker-btn--cancel";
+    cancelBtn.textContent = "Cancel";
+    const okBtn = document.createElement("button");
+    okBtn.type = "button";
+    okBtn.className = "date-picker-btn date-picker-btn--ok";
+    okBtn.textContent = "OK";
+    actions.append(cancelBtn, okBtn);
+
+    function close() {
+        overlay.classList.remove("date-picker-overlay--visible");
+        setTimeout(() => overlay.remove(), 200);
+    }
+
+    function renderMonth() {
+        title.textContent = viewingDate.toLocaleDateString("en-IN", {
+            month: "short",
+            year: "numeric",
+        });
+        datesGrid.innerHTML = "";
+
+        const year = viewingDate.getFullYear();
+        const month = viewingDate.getMonth();
+        const firstDay = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const startDay = firstDay === 0 ? 6 : firstDay - 1;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        for (let i = 0; i < startDay; i++) {
+            const empty = document.createElement("div");
+            empty.className = "date-picker-empty";
+            datesGrid.appendChild(empty);
+        }
+
+        for (let dayNum = 1; dayNum <= daysInMonth; dayNum++) {
+            const cellDate = new Date(year, month, dayNum);
+            cellDate.setHours(0, 0, 0, 0);
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "date-picker-date";
+            btn.textContent = String(dayNum);
+
+            if (sameDay(cellDate, today)) btn.classList.add("date-picker-date--today");
+            if (selectedDate && sameDay(cellDate, selectedDate)) btn.classList.add("date-picker-date--selected");
+
+            if (!isDateInRange(cellDate, minDate, maxDate)) {
+                btn.classList.add("date-picker-date--inactive");
+                btn.disabled = true;
+            } else {
+                btn.addEventListener("click", () => {
+                    selectedDate = cellDate;
+                    renderMonth();
+                });
+            }
+
+            datesGrid.appendChild(btn);
+        }
+
+        const viewMonthStart = new Date(year, month, 1);
+        const minMonthStart = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
+        const maxMonthStart = new Date(maxDate.getFullYear(), maxDate.getMonth(), 1);
+        prevBtn.disabled = viewMonthStart <= minMonthStart;
+        nextBtn.disabled = viewMonthStart >= maxMonthStart;
+    }
+
+    prevBtn.addEventListener("click", () => {
+        viewingDate = new Date(viewingDate.getFullYear(), viewingDate.getMonth() - 1, 1);
+        renderMonth();
+    });
+    nextBtn.addEventListener("click", () => {
+        viewingDate = new Date(viewingDate.getFullYear(), viewingDate.getMonth() + 1, 1);
+        renderMonth();
+    });
+    cancelBtn.addEventListener("click", close);
+    okBtn.addEventListener("click", () => {
+        if (selectedDate) {
+            dateInputEl.dataset.iso = formatIsoDate(selectedDate);
+            dateInputEl.value = formatDisplayDate(selectedDate);
+            clearCardError("schedule-card");
+        }
+        close();
+    });
+
+    overlay.addEventListener("click", (e) => {
+        if (e.target === overlay) close();
+    });
+
+    card.append(header, daysRow, datesGrid, actions);
+    overlay.appendChild(card);
+    panelEl.appendChild(overlay);
+    renderMonth();
+    requestAnimationFrame(() => overlay.classList.add("date-picker-overlay--visible"));
 }
 
 // Business hours: 9:00 AM – 6:00 PM, 30-min steps
@@ -820,7 +1156,7 @@ function openCustomTimePicker(timeInputEl) {
 
     const title = document.createElement("div");
     title.className = "time-picker-title";
-    title.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Select time`;
+    title.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Select time`;
 
     const slotsWrap = document.createElement("div");
     slotsWrap.className = "time-picker-slots";
@@ -889,6 +1225,7 @@ function prefillLocationField() {
     if (detectedLocation) {
         // Already resolved — fill immediately
         locInput.value = detectedLocation;
+        updateLocationClearButtonVisibility();
         statusEl.textContent = "Location auto-detected";
         return;
     }
@@ -905,6 +1242,7 @@ function prefillLocationField() {
                 locInput.disabled = false;
                 locInput.placeholder = "Enter your location...";
                 locInput.value = detectedLocation;
+                updateLocationClearButtonVisibility();
                 statusEl.textContent = "Location auto-detected";
             }
         }, 300);
@@ -915,10 +1253,51 @@ function prefillLocationField() {
             if (!locInput.value) {
                 locInput.disabled = false;
                 locInput.placeholder = "Enter your location...";
+                updateLocationClearButtonVisibility();
                 statusEl.textContent = "Could not detect location. Please type your location.";
             }
         }, 12000);
     }
+}
+
+function initLocationClearControl() {
+    const locInput = document.getElementById("loc-input");
+    const clearBtn = document.getElementById("loc-clear-btn");
+    const statusEl = document.getElementById("loc-status");
+    if (!locInput || !clearBtn) return;
+
+    updateLocationClearButtonVisibility();
+
+    locInput.addEventListener("input", () => {
+        updateLocationClearButtonVisibility();
+    });
+
+    function clearLocationField() {
+        locInput.value = "";
+        locInput.dispatchEvent(new Event("input", { bubbles: true }));
+        detectedLocation = null;
+        if (bookingState && Object.prototype.hasOwnProperty.call(bookingState, "location")) {
+            delete bookingState.location;
+        }
+        updateLocationClearButtonVisibility();
+        if (statusEl) statusEl.textContent = "Location cleared. Type or tap Detect.";
+        clearCardError("schedule-card");
+        locInput.focus();
+    }
+
+    clearBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        clearLocationField();
+    });
+}
+
+function updateLocationClearButtonVisibility() {
+    const locInput = document.getElementById("loc-input");
+    const clearBtn = document.getElementById("loc-clear-btn");
+    if (!locInput || !clearBtn) return;
+    const hasValue = Boolean(locInput.value && locInput.value.trim());
+    clearBtn.classList.toggle("is-visible", hasValue);
 }
 
 // ── Auto-detect (fires on card open) ─────────────────────────────────
@@ -957,37 +1336,44 @@ function autoDetectLocation() {
 }
 
 // ── GPS location detection (manual Detect button) ─────────────────────
-window.detectLocation = function() {
+function detectLocation(silent = false) {
     const statusEl = document.getElementById("loc-status");
     const locInput = document.getElementById("loc-input");
     if (!statusEl || !locInput) return;
 
     if (!navigator.geolocation) {
-        statusEl.textContent = "Geolocation not supported by your browser.";
+        if (!silent) statusEl.textContent = "Geolocation not supported by your browser.";
         return;
     }
 
-    locInput.value = "";
-    locInput.placeholder = "Detecting your location…";
-    locInput.disabled = true;
-    statusEl.textContent = "Detecting your location…";
+    if (!silent) {
+        locInput.value = "";
+        locInput.placeholder = "Detecting your location…";
+        locInput.disabled = true;
+        statusEl.textContent = "Detecting your location…";
+    }
 
     navigator.geolocation.getCurrentPosition(
         (pos) => {
-            locInput.disabled = false;
-            locInput.placeholder = "Enter your location...";
+            if (!silent) {
+                locInput.disabled = false;
+                locInput.placeholder = "Enter your location...";
+            }
             reverseGeocode(pos.coords.latitude, pos.coords.longitude);
         },
         (err) => {
-            locInput.disabled = false;
-            locInput.placeholder = "Enter your location...";
-            statusEl.textContent = err.code === err.PERMISSION_DENIED
-                ? "Location access denied. Please type your location manually."
-                : "Could not detect location. Please type your location manually.";
+            if (!silent) {
+                locInput.disabled = false;
+                locInput.placeholder = "Enter your location...";
+                statusEl.textContent = err.code === err.PERMISSION_DENIED
+                    ? "Location access denied. Please type your location manually."
+                    : "Could not detect location. Please type your location manually.";
+            }
         },
         { timeout: 10000, enableHighAccuracy: false }
     );
-};
+}
+window.detectLocation = detectLocation;
 
 // ── Generate 30-min time slots (legacy) ───────────────────────────────
 function generateTimeSlots() {
@@ -1007,28 +1393,7 @@ function generateTimeSlots() {
 }
 
 // ── GPS location detection ────────────────────────────────────────────
-window.detectLocation = function(silent = false) {
-    const statusEl = document.getElementById("loc-status");
-    const locInput = document.getElementById("loc-input");
-    if (!statusEl || !locInput) return;
 
-    if (!navigator.geolocation) {
-        if (!silent) statusEl.textContent = "Geolocation not supported by your browser.";
-        return;
-    }
-
-    statusEl.textContent = "Detecting your location…";
-    navigator.geolocation.getCurrentPosition(
-        (pos) => {
-            const { latitude, longitude } = pos.coords;
-            reverseGeocode(latitude, longitude);
-        },
-        (err) => {
-            statusEl.textContent = silent ? "" : "Location access denied. Please enter manually.";
-        },
-        { timeout: 8000 }
-    );
-};
 
 function reverseGeocode(lat, lng) {
     const statusEl = document.getElementById("loc-status");
@@ -1040,9 +1405,12 @@ function reverseGeocode(lat, lng) {
         geocoder.geocode({ location: { lat, lng } }, (results, status) => {
             if (status === "OK" && results[0]) {
                 locInput.value = results[0].formatted_address;
+                detectedLocation = results[0].formatted_address;
+                updateLocationClearButtonVisibility();
                 if (statusEl) statusEl.textContent = "Location detected";
             } else {
                 locInput.value = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+                updateLocationClearButtonVisibility();
                 if (statusEl) statusEl.textContent = "Coordinates detected";
             }
         });
@@ -1053,17 +1421,56 @@ function reverseGeocode(lat, lng) {
             .then(data => {
                 const addr = data.display_name || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
                 locInput.value = addr;
+                detectedLocation = addr;
+                updateLocationClearButtonVisibility();
                 if (statusEl) statusEl.textContent = "Location detected";
             })
             .catch(() => {
                 locInput.value = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+                updateLocationClearButtonVisibility();
                 if (statusEl) statusEl.textContent = "Coordinates detected";
             });
     }
 }
 
 // ── Google Places Autocomplete ────────────────────────────────────────
-// ── Google Places Autocomplete (Disabled) ──────────────────────────────
+function initLocationAutocomplete() {
+    const locInput = document.getElementById("loc-input");
+    const statusEl = document.getElementById("loc-status");
+    if (!locInput) return;
+
+    // If Maps API isn't ready yet, show manual guidance and exit.
+    if (!window.google || !window.google.maps || !window.google.maps.places) {
+        if (statusEl && !statusEl.textContent) {
+            statusEl.textContent = "Type your location or use Detect.";
+        }
+        return;
+    }
+
+    // Avoid duplicate bindings when the schedule card is reopened.
+    if (placesAutocomplete && placesAutocomplete.input === locInput) return;
+
+    placesAutocomplete = new google.maps.places.Autocomplete(locInput, {
+        fields: ["formatted_address", "name", "geometry"],
+        types: ["geocode"],
+    });
+    placesAutocomplete.input = locInput;
+
+    placesAutocomplete.addListener("place_changed", () => {
+        const place = placesAutocomplete.getPlace();
+        const fullAddress = place?.formatted_address || place?.name || locInput.value;
+        locInput.value = fullAddress || "";
+        detectedLocation = fullAddress || detectedLocation;
+        updateLocationClearButtonVisibility();
+        if (statusEl) statusEl.textContent = "Address selected";
+        clearCardError("schedule-card");
+    });
+}
+
+// Called by Google Maps script callback once API is loaded.
+window.onGoogleMapsReady = function() {
+    initLocationAutocomplete();
+};
 
 // ── Submit schedule ───────────────────────────────────────────────────
 window.submitSchedule = function() {
@@ -1087,6 +1494,16 @@ window.submitSchedule = function() {
     const formattedDate = new Date(dateIso + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
     const formattedTime = formatTime(time24);
     appendMessage(`${loc}\n${formattedDate} at ${formattedTime}`, "user");
+
+    // If user is editing only schedule from review, return to review directly.
+    if (bookingState.editingFromReviewTarget === "schedule") {
+        bookingState.editingFromReviewTarget = null;
+        setTimeout(() => {
+            appendBotMessage("Updated your schedule. Please review once again.");
+            setTimeout(() => renderReviewBookingCard(), 300);
+        }, 300);
+        return;
+    }
 
     setTimeout(() => {
         appendBotMessage("Perfect! Last step — just need your contact details.");
@@ -1132,6 +1549,19 @@ function renderContactCard() {
         <button onclick="submitContact()" class="booking-btn">Confirm Booking</button>
     `;
     messagesContainer.appendChild(card);
+    const nameEl = document.getElementById("c-name");
+    const phoneEl = document.getElementById("c-phone");
+    const emailEl = document.getElementById("c-email");
+    const relationEl = document.getElementById("c-relation");
+    const selfEl = document.getElementById("c-self");
+    if (nameEl) nameEl.value = bookingState.name || "";
+    if (phoneEl) phoneEl.value = bookingState.phone || "";
+    if (emailEl) emailEl.value = bookingState.email || "";
+    if (relationEl) relationEl.value = bookingState.relation || "";
+    if (selfEl && bookingState.forSelf) {
+        selfEl.checked = true;
+        window.toggleSelfBooking(selfEl);
+    }
     scrollToBottomIfNearBottom();
 }
 
@@ -1170,6 +1600,16 @@ window.submitContact = async function() {
 
     removeAllChips();
     appendMessage(`${name} | ${phone} | ${email}`, "user");
+
+    // If user is editing only contact details from review, return to review directly.
+    if (bookingState.editingFromReviewTarget === "contact") {
+        bookingState.editingFromReviewTarget = null;
+        setTimeout(() => {
+            appendBotMessage("Updated your contact details. Please review once again.");
+            setTimeout(() => renderReviewBookingCard(), 300);
+        }, 300);
+        return;
+    }
 
     // Ask for description to complete the booking (question varies by service)
     bookingState.awaitingDescription = true;
@@ -1333,9 +1773,16 @@ window.needToChangeBooking = function () {
         btn.textContent = label;
         btn.addEventListener("click", () => {
             document.getElementById("review-change-options")?.remove();
-            if (value === "schedule") renderScheduleCard();
-            else if (value === "contact") renderContactCard();
+            if (value === "schedule") {
+                bookingState.editingFromReviewTarget = "schedule";
+                renderScheduleCard();
+            }
+            else if (value === "contact") {
+                bookingState.editingFromReviewTarget = "contact";
+                renderContactCard();
+            }
             else {
+                bookingState.editingFromReviewTarget = "description";
                 bookingState.awaitingDescription = true;
                 appendBotMessage(getDescriptionPromptForService(bookingState.service));
                 setInputEnabled(true);
@@ -1659,10 +2106,11 @@ function createChip(label, allowIcon = false) {
     const btn = document.createElement("button");
     btn.className = "option-btn fade-in";
     const icon = allowIcon ? getIconForLabel(label) : "";
+    const displayLabel = sentenceCaps(label);
     if (icon) {
-        btn.innerHTML = `<span class="btn-icon">${icon}</span> ${label}`;
+        btn.innerHTML = `<span class="btn-icon">${icon}</span> ${displayLabel}`;
     } else {
-        btn.textContent = label;
+        btn.textContent = displayLabel;
     }
     btn.addEventListener("click", () => sendMessage(label));
     return btn;
@@ -1670,6 +2118,11 @@ function createChip(label, allowIcon = false) {
 
 function removeAllChips() {
     document.querySelectorAll(".chips-container").forEach(el => el.remove());
+    const quickActionsBar = document.getElementById("quick-actions-bar");
+    if (quickActionsBar) {
+        quickActionsBar.innerHTML = "";
+        quickActionsBar.classList.remove("quick-actions-bar--visible");
+    }
 }
 
 function showTyping(visible) {
@@ -1856,7 +2309,9 @@ function toggleVoiceInput() {
         userInput.value = transcript;
         if (event.results[event.results.length - 1].isFinal) {
             stopVoiceInput();
-            setTimeout(() => handleSend(), 300);
+            // Let the user review/edit the transcript and tap Send manually
+            userInput.focus();
+            showToast("Review your message, then tap Send");
         }
     };
 
@@ -1865,7 +2320,10 @@ function toggleVoiceInput() {
         if (e.error !== 'aborted') showToast("Voice error: " + e.error);
     };
 
-    speechRecognition.onend = () => stopVoiceInput();
+    speechRecognition.onend = () => {
+        // Only cleanup UI if we weren't already stopped from a final result
+        if (isRecording) stopVoiceInput();
+    };
 
     speechRecognition.start();
 }

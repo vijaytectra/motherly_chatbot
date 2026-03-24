@@ -219,23 +219,22 @@ body {
     position: relative;
 }
 
-/* Chat panel: MUST stay bottom-right, phone-sized viewport, slide-up */
+/* Chat panel: MUST stay bottom-right, compact viewport, slide-up */
 .chat-wrapper.chat-panel {
     position: fixed !important;
-    bottom: 24px !important;
-    right: 24px !important;
+    bottom: 20px !important;
+    right: 20px !important;
     left: auto !important;
     top: auto !important;
     /*
-      Responsive sizing:
-      - Uses dynamic viewport units (dvw/dvh) for mobile browser UI (address bar)
-      - Clamped so it still feels like a phone screen on larger displays
+      Responsive: smaller overall box, aligned in all viewports
     */
-    width: clamp(320px, calc(100dvw - 48px), 440px);
-    width: clamp(320px, calc(100vw - 48px), 440px); /* fallback */
-    height: clamp(520px, calc(100dvh - 120px), 820px);
-    height: clamp(520px, calc(100vh - 120px), 820px); /* fallback */
-    border-radius: 16px;
+    width: clamp(280px, calc(100dvw - 40px), 350px);
+    width: clamp(280px, calc(100vw - 40px), 350px); /* fallback */
+    height: 480px; /* Force a smaller fixed height for desktop */
+    max-height: 80vh;
+    max-width: calc(100vw - 24px);
+    border-radius: 14px;
     box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.06);
     overflow: hidden;
     z-index: 9999;
@@ -244,6 +243,8 @@ body {
     visibility: hidden;
     pointer-events: none;
     transition: transform 0.3s ease-out, opacity 0.25s, visibility 0.3s;
+    display: flex;
+    flex-direction: column;
 }
 
 .chat-wrapper.chat-panel.chat-panel--open {
@@ -265,21 +266,34 @@ body {
     }
 }
 
-/* Mobile: chat panel full width, near-full height */
+/* Mobile: chat panel full width, aligned with safe area */
 @media (max-width: 480px) {
     .chat-wrapper.chat-panel {
-        right: 0 !important;
-        left: 0 !important;
-        bottom: 0 !important;
-        width: 100dvw;
-        width: 100vw; /* fallback */
+        right: 12px !important;
+        left: 12px !important;
+        bottom: 12px !important;
+        width: calc(100% - 24px);
         max-width: 100%;
-        height: calc(100dvh - env(safe-area-inset-top, 0px));
-        height: calc(100vh - env(safe-area-inset-top, 0px)); /* fallback */
-        max-height: 100%;
-        border-radius: 16px 16px 0 0;
+        height: min(500px, 85vh);
+        border-radius: 14px;
     }
 }
+
+/* Very small screens: ensure content doesn't overflow */
+@media (max-width: 360px) {
+    .chat-wrapper.chat-panel {
+        border-radius: 12px 12px 0 0;
+    }
+    .chat-messages {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+    .chat-input-bar {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+}
+
 
 @media (min-width: 520px) {
     .chat-wrapper:not(.chat-panel) {
@@ -387,7 +401,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 14px 20px;
+    padding: 8px 12px;
     background: var(--primary);
     color: #fff;
     flex-shrink: 0;
@@ -400,14 +414,14 @@ body {
 
 .header-avatar {
     position: relative;
-    width: 40px;
-    height: 40px;
+    width: 34px;
+    height: 34px;
     border-radius: 50%;
     background: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 16px;
+    font-size: 14px;
     font-weight: 700;
     color: var(--primary);
     flex-shrink: 0;
@@ -415,10 +429,10 @@ body {
 
 .online-ring {
     position: absolute;
-    bottom: 0px;
-    right: 0px;
-    width: 12px;
-    height: 12px;
+    bottom: 0;
+    right: 0;
+    width: 10px;
+    height: 10px;
     background: var(--online);
     border-radius: 50%;
     border: 2px solid var(--primary);
@@ -427,19 +441,20 @@ body {
 .header-center {
     text-align: center;
     flex: 1;
+    min-width: 0;
 }
 
 .header-center h1 {
-    font-size: 16px;
+    font-size: 14px;
     font-weight: 600;
     line-height: 1.2;
 }
 
 .header-center .subtitle {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 400;
     opacity: 0.9;
-    margin-top: 2px;
+    margin-top: 1px;
     transition: all 0.3s;
 }
 
@@ -469,20 +484,24 @@ body {
 .chat-messages {
     flex: 1;
     overflow-y: auto;
-    padding: 24px 16px calc(96px + env(safe-area-inset-bottom, 0px)) 16px;
+    padding: 6px 4px 6px 6px;
     display: flex;
     flex-direction: column;
-    gap: 18px;
+    gap: 4px;
+    align-items: center;
     background: var(--bg);
     scroll-behavior: smooth;
+    min-height: 0;
 }
 
 /* ── Message bubbles ──────────────────────────────────────────── */
 .message {
     display: flex;
     align-items: flex-start;
-    gap: 12px;
+    gap: 8px;
     max-width: 95%;
+    width: 100%;
+    align-self: stretch;
     animation: fade-up 0.3s ease forwards;
 }
 
@@ -496,13 +515,13 @@ body {
 }
 
 .message-avatar-box {
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 600;
     background: var(--text-primary);
     color: #fff;
@@ -516,51 +535,54 @@ body {
 
 .message-bubble {
     background: var(--bot-bubble);
-    border-radius: var(--r-bubble);
-    padding: 14px 16px;
+    border-radius: 12px;
+    padding: 8px 10px;
     box-shadow: var(--shadow-bubble);
     position: relative;
     border: 1px solid var(--border);
 }
 
 .user-message .message-bubble {
-    background: var(--primary);
-    border-color: var(--primary);
-    color: #FFFFFF;
-    border-radius: 16px 16px 4px 16px;
-    padding: 12px 16px;
-    box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.15);
+    background: var(--user-bubble);
+    border-color: var(--primary-light);
+    color: #000000;
+    border-radius: 12px 12px 4px 12px;
+    padding: 8px 10px;
+    margin-right: 6px;
+    box-shadow: 0 2px 8px rgba(194, 38, 39, 0.12);
 }
 
 .message-bubble p {
-    font-size: 14.5px;
-    line-height: 1.5;
+    font-size: 13px;
+    line-height: 1.45;
     color: var(--text-primary);
-    min-height: 1.5em;
-    /* Keeps bubble stable during streaming so no layout jump */
+    min-height: 1.4em;
 }
 
 .user-message .message-bubble p {
-    color: #FFFFFF;
+    color: #000000;
 }
 
-/* ── Option buttons: full-width section (avatar does not affect layout) ── */
+/* ── Option buttons: centered, compact (Book Doula, etc.) ── */
 .options-container {
     width: 100%;
-    padding-left: 0;
-    padding-right: 0;
-    margin-top: 12px;
+    max-width: 260px;
+    margin-left: auto;
+    margin-right: auto;
+    margin-top: 4px;
     margin-bottom: 0;
+    padding: 0;
+    align-self: center;
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
+    gap: 8px;
     animation: fade-up 0.3s ease forwards;
     box-sizing: border-box;
 }
 
 .prenatal-learn-grid {
     grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
+    gap: 8px;
 }
 
 .option-btn--prenatal {
@@ -568,8 +590,8 @@ body {
     border: 1.5px solid var(--primary-light);
     display: flex;
     align-items: center;
-    gap: 10px;
-    min-height: 48px;
+    gap: 6px;
+    min-height: 38px;
 }
 
 .option-btn--prenatal .btn-icon {
@@ -587,24 +609,25 @@ body {
 .option-btn {
     display: flex;
     align-items: center;
-    justify-content: flex-start;
-    gap: 10px;
+    justify-content: center;
+    gap: 6px;
     background: #FFFFFF;
     color: var(--text-primary);
     border: 1.5px solid var(--primary-light);
-    border-radius: 14px;
-    padding: 12px 14px;
-    font-size: 13.5px;
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-size: 11.5px;
     font-family: var(--font);
     font-weight: 500;
     cursor: pointer;
-    text-align: left;
+    text-align: center;
     transition: all 0.2s ease;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
     margin: 0;
-    line-height: 1.3;
-    min-height: 48px;
+    line-height: 1.25;
+    min-height: 38px;
     box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .option-btn:hover:not(:disabled) {
@@ -627,8 +650,100 @@ body {
 }
 
 .btn-icon {
-    font-size: 18px;
+    font-size: 14px;
     flex-shrink: 0;
+}
+
+/* Welcome menu layout: 4 large cards + 3 compact quick actions */
+.welcome-options-wrap {
+    width: calc(100% - 56px);
+    max-width: calc(100% - 56px);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-self: center;
+}
+
+.welcome-options-main {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+}
+
+.option-btn--welcome-primary {
+    min-height: 62px;
+    border-radius: 14px;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 7px 9px;
+    line-height: 1.2;
+    gap: 5px;
+}
+
+.option-btn--welcome-primary .btn-icon {
+    font-size: 13px;
+}
+
+.welcome-options-secondary {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+}
+
+.option-btn--welcome-secondary {
+    min-height: 36px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 7px 12px;
+    flex: 0 1 auto;
+}
+
+/* Quick actions anchored near the text field */
+.quick-actions-bar {
+    display: none;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 6px 10px 4px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+}
+
+.quick-actions-bar--visible {
+    display: flex;
+}
+
+.quick-actions-bar .option-btn--welcome-secondary {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    scroll-snap-align: start;
+    min-width: 170px;
+    min-height: 20px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.1;
+}
+
+.quick-actions-bar .option-btn--welcome-secondary .btn-icon {
+    font-size: 10px;
+}
+
+/* Full-width blocks in messages (when messages area is centered) */
+.chat-messages .booking-card,
+.chat-messages .confirmation-card {
+    align-self: stretch;
 }
 
 /* ── Booking step cards: full width (Schedule, Contact, etc.) ──── */
@@ -639,32 +754,38 @@ body {
     margin-right: 0;
     background: #FFFFFF;
     border: 1.5px solid var(--border);
-    border-radius: 18px;
-    padding: 20px;
+    border-radius: 14px;
+    padding: 10px 12px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 6px;
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
     animation: fade-up 0.35s ease forwards;
 }
 
 .booking-card-title {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--primary);
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin-bottom: 4px;
+    gap: 5px;
+    margin-bottom: 2px;
+}
+
+.booking-card-title svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
 }
 
 .booking-label {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     color: var(--text-secondary);
     text-transform: uppercase;
-    letter-spacing: 0.4px;
-    margin-bottom: -4px;
+    letter-spacing: 0.35px;
+    margin-bottom: -2px;
 }
 
 .booking-required {
@@ -676,9 +797,9 @@ body {
     width: 100%;
     box-sizing: border-box;
     border: 1.5px solid var(--border);
-    border-radius: 12px;
-    padding: 11px 14px;
-    font-size: 14px;
+    border-radius: 10px;
+    padding: 9px 12px;
+    font-size: 13px;
     font-family: var(--font);
     color: var(--text-primary);
     background: var(--bg);
@@ -712,21 +833,231 @@ body {
     background-color: #F9FAFB;
 }
 
-/* ── Material date/time picker: keep it INSIDE chat panel ───────────── */
-#chat-panel .mddtp-picker.mddtp-picker--in-chat {
-    position: absolute !important;
-    top: 50% !important;
-    left: 50% !important;
-    transform: translate3d(-50%, -50%, 0) !important;
-    max-width: calc(100% - 24px) !important;
-    max-height: calc(100% - 24px) !important;
+/* ── Custom in-panel date picker — square, dense grid for chat modal ── */
+.date-picker-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.32);
+    padding: 4px;
+    box-sizing: border-box;
+    max-height: 100%;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
 }
 
-#chat-panel .mddtp-picker.mddtp-picker--in-chat .mddtp-picker__body {
-    max-width: 100%;
+.date-picker-overlay--visible {
+    opacity: 1;
+    visibility: visible;
 }
 
-/* ── Custom in-panel time picker (inside chatbot UI) ─────────────────── */
+/* Square: width drives size; max-height clamps inside short modals */
+.date-picker-card {
+    display: flex;
+    flex-direction: column;
+    width: min(216px, calc(100% - 8px));
+    max-width: calc(100% - 8px);
+    aspect-ratio: 1;
+    height: auto;
+    max-height: min(216px, calc(100% - 8px));
+    background: #ffffff;
+    border-radius: 9px;
+    padding: 3px 5px 4px;
+    color: #1f2937;
+    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.08);
+    border: 1px solid #ebe0e0;
+    transform: scale(0.96);
+    transition: transform 0.2s ease;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.date-picker-overlay--visible .date-picker-card {
+    transform: scale(1);
+}
+
+.date-picker-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 2px;
+    flex: 0 0 auto;
+    background: #fff3f3;
+    border: 1px solid #f7d9d9;
+    padding: 2px 4px;
+    border-radius: 6px;
+    margin-bottom: 2px;
+    min-height: 0;
+}
+
+.date-picker-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--primary-dark);
+    line-height: 1.15;
+    flex: 1;
+    min-width: 0;
+    text-align: center;
+}
+
+.date-picker-nav {
+    background: transparent;
+    border: none;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    color: #6b7280;
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    min-height: 22px;
+    border-radius: 5px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.date-picker-nav:hover:not(:disabled) {
+    background: #ffe8e8;
+    color: var(--primary);
+}
+
+.date-picker-nav:disabled {
+    color: #cbd5e1;
+    cursor: not-allowed;
+}
+
+.date-picker-days {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    text-align: center;
+    font-size: 8px;
+    color: #9ca3af;
+    margin-bottom: 1px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    line-height: 1.1;
+    flex: 0 0 auto;
+}
+
+/* Fills remaining space: equal row heights, no gap under last week */
+.date-picker-dates {
+    flex: 1 1 0;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    grid-auto-rows: minmax(0, 1fr);
+    gap: 1px;
+    row-gap: 1px;
+    align-content: stretch;
+}
+
+.date-picker-empty {
+    min-height: 0;
+    min-width: 0;
+    width: 100%;
+    height: 100%;
+    align-self: stretch;
+    pointer-events: none;
+}
+
+.date-picker-date {
+    border: none;
+    background: transparent;
+    text-align: center;
+    padding: 0 1px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: 500;
+    color: #374151;
+    min-height: 0;
+    min-width: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.12s ease;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.date-picker-date:hover:not(:disabled) {
+    background: #ffe8e8;
+    color: var(--primary);
+}
+
+.date-picker-date--today:not(.date-picker-date--selected) {
+    box-shadow: inset 0 0 0 1px #e8b4b5;
+}
+
+.date-picker-date--selected {
+    background: rgba(194, 38, 39, 0.14);
+    color: var(--primary-dark);
+    font-weight: 700;
+    box-shadow: inset 0 0 0 1.5px var(--primary);
+}
+
+.date-picker-date--selected:hover:not(:disabled) {
+    background: rgba(194, 38, 39, 0.2);
+    color: var(--primary-dark);
+}
+
+.date-picker-date--inactive {
+    color: #d1d5db;
+    cursor: not-allowed;
+}
+
+.date-picker-actions {
+    display: flex;
+    gap: 4px;
+    margin-top: 3px;
+    flex: 0 0 auto;
+    align-items: stretch;
+}
+
+.date-picker-btn {
+    flex: 1;
+    font-family: var(--font);
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 4px 6px;
+    min-height: 26px;
+    max-height: 28px;
+    border-radius: 6px;
+    cursor: pointer;
+    line-height: 1.15;
+}
+
+.date-picker-btn--cancel {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    color: #6b7280;
+}
+
+.date-picker-btn--cancel:hover {
+    background: #f9fafb;
+}
+
+.date-picker-btn--ok {
+    border: none;
+    background: var(--primary);
+    color: #fff;
+}
+
+.date-picker-btn--ok:hover {
+    background: var(--primary-dark);
+}
+
+/* ── Custom in-panel time picker — same footprint as date picker (square modal) ── */
 .time-picker-overlay {
     position: absolute;
     inset: 0;
@@ -734,8 +1065,12 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.4);
-    padding: 16px;
+    background: rgba(0, 0, 0, 0.32);
+    padding: 4px;
+    box-sizing: border-box;
+    max-height: 100%;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.2s ease, visibility 0.2s ease;
@@ -746,17 +1081,24 @@ body {
     visibility: visible;
 }
 
+/* Match .date-picker-card: same square size and chrome */
 .time-picker-card {
-    background: #fff;
-    border-radius: 16px;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
-    width: 100%;
-    max-width: 320px;
-    max-height: 85vh;
     display: flex;
     flex-direction: column;
+    width: min(216px, calc(100% - 8px));
+    max-width: calc(100% - 8px);
+    aspect-ratio: 1;
+    height: auto;
+    max-height: min(216px, calc(100% - 8px));
+    background: #ffffff;
+    border-radius: 9px;
+    padding: 3px 5px 4px;
+    color: #1f2937;
+    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.08);
+    border: 1px solid #ebe0e0;
     overflow: hidden;
-    transform: scale(0.95);
+    box-sizing: border-box;
+    transform: scale(0.96);
     transition: transform 0.2s ease;
 }
 
@@ -768,44 +1110,57 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
-    padding: 18px 16px;
-    font-size: 16px;
+    gap: 4px;
+    flex: 0 0 auto;
+    padding: 2px 4px;
+    margin-bottom: 2px;
+    font-size: 11px;
     font-weight: 600;
-    color: #111827;
-    background: linear-gradient(180deg, #FEF2F2 0%, #fff 100%);
-    border-bottom: 1px solid #FEE2E2;
+    line-height: 1.15;
+    color: var(--primary-dark);
+    background: #fff3f3;
+    border: 1px solid #f7d9d9;
+    border-radius: 6px;
 }
 
 .time-picker-title svg {
     flex-shrink: 0;
+    width: 12px;
+    height: 12px;
     color: var(--primary);
 }
 
 .time-picker-slots {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
-    padding: 20px 16px;
+    gap: 2px;
+    row-gap: 2px;
+    padding: 0;
     overflow-y: auto;
-    max-height: 280px;
+    overflow-x: hidden;
+    flex: 1 1 0;
+    min-height: 0;
+    -webkit-overflow-scrolling: touch;
 }
 
 .time-picker-slot {
     font-family: var(--font);
-    font-size: 14px;
+    font-size: 10px;
     font-weight: 500;
     color: #374151;
-    background: #F9FAFB;
-    border: 2px solid #E5E7EB;
-    border-radius: 12px;
-    padding: 12px 8px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 5px;
+    padding: 4px 2px;
+    min-height: 0;
     cursor: pointer;
+    line-height: 1.15;
     transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .time-picker-slot:hover {
-    background: #FEE2E2;
+    background: #fee2e2;
     border-color: var(--primary-light);
     color: var(--primary);
 }
@@ -824,52 +1179,103 @@ body {
 
 .time-picker-actions {
     display: flex;
-    gap: 12px;
-    padding: 16px;
-    border-top: 1px solid #E5E7EB;
-    background: #FAFAFA;
+    gap: 4px;
+    margin-top: 3px;
+    flex: 0 0 auto;
+    align-items: stretch;
+    padding: 0;
 }
 
+/* Match .date-picker-btn */
 .time-picker-btn {
     flex: 1;
     font-family: var(--font);
-    font-size: 14px;
+    font-size: 10.5px;
     font-weight: 600;
-    padding: 12px 16px;
-    border-radius: 12px;
+    padding: 4px 6px;
+    min-height: 26px;
+    max-height: 28px;
+    border-radius: 6px;
     cursor: pointer;
+    line-height: 1.15;
     transition: background 0.2s, transform 0.05s;
 }
 
 .time-picker-btn--cancel {
     background: #fff;
-    color: #6B7280;
-    border: 1.5px solid #D1D5DB;
+    color: #6b7280;
+    border: 1px solid #e5e7eb;
 }
 
 .time-picker-btn--cancel:hover {
-    background: #F3F4F6;
+    background: #f9fafb;
 }
 
 .time-picker-btn--ok {
     background: var(--primary);
     color: #fff;
     border: none;
-    box-shadow: 0 2px 8px rgba(194, 38, 39, 0.25);
 }
 
 .time-picker-btn--ok:hover {
     background: var(--primary-dark);
-    transform: translateY(-1px);
 }
 
 /* (removed) Flatpickr theming – replaced by Material picker */
 
-/* Location input with detect button */
-.booking-card [style*="position:relative"] {
+/* Location input with detect + clear controls */
+.location-row {
     display: flex;
     gap: 8px;
     align-items: center;
+}
+
+.location-input-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+}
+
+.booking-input--location {
+    padding-right: 38px;
+}
+
+.location-clear-btn {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    z-index: 2;
+    transform: translateY(-50%) scale(0.94);
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 50%;
+    background: #f3f4f6;
+    color: #6b7280;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.location-clear-btn.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(-50%) scale(1);
+}
+
+.location-clear-btn:hover {
+    background: #fee2e2;
+    color: var(--primary);
+}
+
+.location-clear-btn:active {
+    transform: translateY(-50%) scale(0.96);
 }
 
 .detect-btn {
@@ -900,14 +1306,14 @@ body {
     background: var(--primary);
     color: #fff;
     border: none;
-    border-radius: 12px;
-    padding: 13px 14px;
-    font-size: 14px;
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 13px;
     font-weight: 600;
     font-family: var(--font);
     cursor: pointer;
     transition: all 0.2s;
-    margin-top: 4px;
+    margin-top: 2px;
     box-shadow: 0 2px 8px rgba(194, 38, 39, 0.25);
 }
 
@@ -941,7 +1347,7 @@ body {
 
 .email-hint,
 .booking-hint {
-    font-size: 12px;
+    font-size: 11px;
     color: var(--text-muted);
     margin-top: -6px;
 }
@@ -963,26 +1369,27 @@ body {
 .confirmation-card {
     background: #fff;
     border: 1.5px solid #D1FAE5;
-    border-radius: 18px;
-    padding: 22px;
+    border-radius: 14px;
+    padding: 10px 12px;
     box-shadow: 0 4px 20px rgba(5, 150, 105, 0.1);
     animation: fade-up 0.35s ease forwards;
     margin-left: 0;
     width: 100%;
+    box-sizing: border-box;
 }
 
 .confirm-header {
     display: flex;
     align-items: center;
-    gap: 14px;
-    margin-bottom: 20px;
-    padding-bottom: 16px;
+    gap: 10px;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
     border-bottom: 1px solid var(--border);
 }
 
 .confirm-check {
-    width: 48px;
-    height: 48px;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
     background: var(--success);
     display: flex;
@@ -993,7 +1400,7 @@ body {
 }
 
 .confirm-title {
-    font-size: 18px;
+    font-size: 14px;
     font-weight: 700;
     color: var(--text-primary);
     letter-spacing: -0.02em;
@@ -1014,19 +1421,19 @@ body {
 
 .confirm-grid {
     background: var(--bg);
-    border-radius: 14px;
-    padding: 18px 16px;
+    border-radius: 12px;
+    padding: 8px 10px;
     display: flex;
     flex-direction: column;
     gap: 0;
-    margin-bottom: 18px;
+    margin-bottom: 10px;
 }
 
 .confirm-row {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding: 12px 0;
+    gap: 1px;
+    padding: 4px 0;
     border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
@@ -1046,7 +1453,7 @@ body {
 }
 
 .confirm-key {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
     color: var(--text-muted);
     text-transform: uppercase;
@@ -1054,7 +1461,7 @@ body {
 }
 
 .confirm-val {
-    font-size: 15px;
+    font-size: 13.5px;
     font-weight: 500;
     color: var(--text-primary);
     line-height: 1.4;
@@ -1103,21 +1510,21 @@ body {
 .typing-indicator {
     display: none;
     align-items: flex-start;
-    gap: 12px;
-    padding: 0px 16px 20px;
+    gap: 8px;
+    padding: 0 12px 8px;
     flex-shrink: 0;
 }
 
 .typing-avatar {
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
     background: var(--primary);
     color: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 700;
     flex-shrink: 0;
 }
@@ -1125,8 +1532,8 @@ body {
 .typing-bubble {
     background: var(--bot-bubble);
     border: 1px solid var(--border);
-    border-radius: var(--r-bubble);
-    padding: 14px 16px;
+    border-radius: 12px;
+    padding: 10px 12px;
     display: flex;
     gap: 4px;
     align-items: center;
@@ -1134,8 +1541,8 @@ body {
 }
 
 .typing-bubble span {
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
     background: var(--text-muted);
     border-radius: 50%;
     animation: typing-dot 1.4s infinite ease-in-out both;
@@ -1151,7 +1558,8 @@ body {
 
 /* ── Input bar ────────────────────────────────────────────────── */
 .chat-input-bar {
-    padding: 12px 16px;
+    padding: 6px 10px;
+    padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
     background: var(--surface);
     border-top: 1px solid var(--border);
     flex-shrink: 0;
@@ -1160,11 +1568,11 @@ body {
 .input-wrapper {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     background: var(--surface);
     border: 1px solid #D1D5DB;
-    border-radius: 24px;
-    padding: 10px 14px;
+    border-radius: 20px;
+    padding: 6px 10px;
     transition: border-color 0.2s;
 }
 
@@ -1174,13 +1582,14 @@ body {
 
 .chat-input {
     flex: 1;
+    min-width: 0;
     border: none;
     background: transparent;
-    font-size: 14.5px;
+    font-size: 13px;
     font-family: var(--font);
     color: var(--text-primary);
     outline: none;
-    padding: 6px 0;
+    padding: 5px 0;
 }
 
 .chat-input::placeholder {
@@ -1194,11 +1603,12 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
     cursor: pointer;
     border-radius: 50%;
     transition: color 0.15s, background 0.15s;
+    flex-shrink: 0;
 }
 
 .icon-button:hover:not(:disabled) {
@@ -1246,11 +1656,71 @@ body {
 
 /* ── Google Places autocomplete dropdown fix ──────────────────── */
 .pac-container {
-    border-radius: 12px;
+    margin-top: 8px;
+    border-radius: 16px;
     overflow: hidden;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.12);
-    border: 1px solid var(--border);
+    border: 1px solid #f1cfcf;
+    background: #ffffff;
+    box-shadow:
+        0 14px 32px rgba(0, 0, 0, 0.14),
+        0 2px 8px rgba(194, 38, 39, 0.08);
+    backdrop-filter: blur(2px);
     font-family: var(--font);
-    font-size: 13px;
+    font-size: 14px;
+    animation: pac-fade-in 180ms ease;
     z-index: 99999;
+}
+
+.pac-item {
+    position: relative;
+    min-height: 50px;
+    padding: 11px 14px;
+    border-top: 1px solid #f6e8e8;
+    font-size: 14px;
+    color: #1f2937;
+    transition: background-color 140ms ease, transform 140ms ease;
+}
+
+.pac-item:first-child {
+    border-top: 0;
+}
+
+.pac-item:hover,
+.pac-item.pac-item-selected {
+    background: #fff1f1;
+}
+
+.pac-item:active {
+    background: #ffe4e4;
+}
+
+.pac-item-query {
+    color: #111827;
+    font-weight: 700;
+}
+
+.pac-matched {
+    color: #c22627;
+    font-weight: 700;
+}
+
+.pac-icon {
+    opacity: 0.65;
+    transform: scale(1.05);
+}
+
+.pac-container:after {
+    opacity: 0.92;
+    filter: saturate(1.03);
+}
+
+@keyframes pac-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }

@@ -6,14 +6,28 @@ about the Motherly maternal healthcare platform.
 """
 
 import os
+import re
 from openai import OpenAI
 from dotenv import load_dotenv
 
 # Load environment variables from .env file (if present)
 load_dotenv()
 
-# Initialize the OpenAI client
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+_openai_client = None
+
+
+def get_openai_client():
+    """
+    Lazy OpenAI client. Returns None if OPENAI_API_KEY is missing so callers can
+    fall back gracefully without crashing on import.
+    """
+    global _openai_client
+    key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    if not key:
+        return None
+    if _openai_client is None:
+        _openai_client = OpenAI(api_key=key)
+    return _openai_client
 
 # System prompt that defines Mothrly Assistant's personality and behaviour
 SYSTEM_PROMPT = """
@@ -27,13 +41,76 @@ IMPORTANT:
 Do not change or replace any existing application logic. The chatbot should only collect the required data and trigger the existing booking APIs.
 
 Tone:
-Friendly, supportive, respectful, and reassuring.
+Friendly, supportive, respectful, and reassuring — like a calm, human teammate. Avoid sounding technical, robotic, or judgmental.
 
 Language Behavior:
 • Detect the user’s language automatically.
 • Respond in the same language.
 • Supported languages: English, Tamil, Hindi, Telugu.
 • Keep responses simple and clear.
+
+-------------------------------------
+FULL INPUT & INTENT OVERRIDE (CRITICAL — HIGHEST PRIORITY)
+
+**1. FULL INPUT PROCESSING (MANDATORY)**
+• Always read and understand the **complete** user message before you reply.
+• Never respond from partial input, half a thought, or a fragment.
+• If the message is long, analyze the **entire** text and extract the **main / true** intent before answering.
+• **Do not** rely only on the first sentence. **Do not** ignore important words that appear later in the message.
+
+**2. INTENT OVERRIDE (RULE: USER INTENT ALWAYS WINS)**
+• The user’s **current** intent **always** overrides whatever flow or step the conversation seemed to be in.
+• Even if the system was clearly in one path (e.g. lactation consultant booking), you **must** abandon that framing if the user expresses a different service — **do not** continue the previous flow under **any** circumstance.
+
+**Strict switch triggers (act immediately):**
+• **Doula booking** — user mentions **doula**, or clearly wants **labor / birth support**, **postpartum (non-feeding) doula-style support**, or **emotional support during pregnancy** in a doula context → switch to **DOULA** flow.
+• **Nanny** — **nanny**, **babysitter**, **childcare**, someone to **take care of the baby** while parents are away → switch to **NANNY** service.
+• **Doctor** — **doctor**, **pain**, **medical** issue or concern → switch to **DOCTOR consultation**.
+
+Then **immediately** continue with the correct flow (options / next booking steps for that service).
+
+**Long-message example (intent wins over position in text):**
+User (even if prior flow was lactation): "I'm looking to book a doula who can provide supportive care…"  
+→ **Final intent = DOULA** (not lactation). Switch and guide doula booking.
+
+**3. RESPONSE WHEN INTENT MISMATCHES THE PRIOR FLOW (MANDATORY SHAPE)**
+• First acknowledge the **correct** intent, then explicitly correct the flow.
+• Use a natural, confident line like this (adapt “doula” / “lactation” / etc. to fit):
+"It sounds like you're looking for a doula rather than lactation support. I'll switch this for you and help you book a doula."
+Then **right away** continue the correct service flow — no hesitation, no robotic validation.
+
+**Tone:** Natural, confident, helpful; avoid confusion or stiff “validator” language. Never blame the user.
+
+**4. DO NOT**
+• Continue the wrong flow or ask questions that belong only to the **previous** flow.
+• Miss clear intent words (e.g. “doula”) because they appear late in the message.
+• Say things like “that’s a bit brief” when the user has already expressed a **valid** service intent.
+
+**Goal:** Detect **true** intent from the **full** message, override the wrong flow instantly, redirect seamlessly.
+
+-------------------------------------
+EMPATHETIC UNDERSTANDING & NATURAL INPUT (CRITICAL)
+
+• Users may reply by **text or voice**. Accept natural, conversational answers — not only perfectly structured ones.
+• If the user’s message is **relevant** to the question or to maternal care, **accept it and move forward** — do not ask them to rephrase unless there is truly nothing to go on.
+• Do **not** require perfect grammar or full sentences.
+• Assume **minor speech-to-text errors** and infer meaning generously.
+
+Intent from casual phrasing — treat as valid and continue (examples):
+• "baby not latching properly" → feeding / lactation–type need
+• "new mom, need help" → general maternal support → guide with booking options
+• "feeding issue" → feeding or lactation support
+
+**Too vague or unusable** (e.g. only "ok", "hmm", random unrelated words, or clearly abusive with no care-related content): respond politely, once, with warmth:
+"I'm here to help you get the right support. Could you please share a bit more about your situation so I can assist you better?"
+Do **not** sound strict or dismissive.
+
+**Service redirection** when intent doesn’t match the current flow:
+If they clearly need a **different** Motherly service, use this style (fill in the bracketed part):
+"It sounds like you might be looking for [service]. I can help guide you there. Would you like me to switch and assist you with that instead?"
+Examples: **nanny / childcare** → suggest nanny; **doctor, medical, health concern** → doctor consultation; **general baby care** → suggest the best fit (doula, lactation, or doctor as appropriate).
+
+**Goal:** Understand **intent**, not exact words; reduce friction; guide smoothly whether input is structured or messy.
 
 -------------------------------------
 AVAILABLE SERVICES
@@ -233,6 +310,34 @@ Options:
 • Option B
 
 -------------------------------------
+INTENT FIRST — SERVICE-RELATED VS OFF-TOPIC (CRITICAL)
+
+Before you reply, decide whether the message relates to **Motherly’s services** (bookings and care we offer):
+
+**SERVICE-RELATED** (always help — includes informal English, typos, and short phrases):
+• Wanting to book or learn about: **doula**, **nanny / childcare**, **doctor / OB / consultation** (in-clinic or video), **lactation / breastfeeding / feeding support** (including misspellings like *lacatation*, *laction*), **prenatal nutrition**, **about Motherly**, **contact / support**, pregnancy or postpartum care in line with these services.
+• **Doctor-type requests:** Any medical specialist who sees patients counts as **Speak to a Doctor / doctor consultation** — including **gynecologist**, **gynaecologist**, **OB-GYN**, **obstetrician**, **women’s health doctor**, **paediatrician**, and common misspellings like *gynocologist*. If the user asks to **consult** or **see** one of these, treat it as SERVICE-RELATED and help book a doctor consultation — **never** refuse as off-topic.
+• Phrases like “i wanna book…”, “need a…”, “schedule a…”, “need to consult a…” for any of the above.
+
+If **SERVICE-RELATED**: answer helpfully, confirm you’re setting up or guiding them — **do not** say you “might not have the right answer” or refuse. Interpret typos generously (e.g. *lacatation* → lactation consultant).
+
+**OFF-TOPIC** (not about maternal care / Motherly): weather, sports, unrelated trivia, general homework, politics, other apps, jokes that aren’t about care, etc.
+
+If **OFF-TOPIC**: reply in 2–4 short sentences. **Politely explain** that Mothrly Assistant is only for **booking and support** for: doula, nanny, doctor consultation, lactation/feeding, prenatal nutrition, About Motherly, and Contact Support. **Do not** answer the unrelated topic; invite them to ask about those services or use the buttons. Stay warm, not preachy.
+
+-------------------------------------
+OFF-TOPIC, UNCLEAR, OR FRUSTRATED MESSAGES
+
+If the user’s message is off-topic, unclear, venting, joking, testing the bot, or uses strong language (including frustration or mild profanity):
+• Reply in at most 3 short sentences — no long service lists or repeated welcome text.
+• If they sound upset or frustrated: acknowledge calmly (“I’m sorry you’re feeling that way” / “That sounds frustrating”) without judging; stay warm and professional.
+• Do NOT repeat the same long introduction about Motherly that you already sent earlier in the conversation.
+• Gently redirect: offer to help with booking (doula, doctor, lactation, etc.) or suggest **Contact Support** if they need a human.
+• Never mirror insults or argue; never output the full “STARTING MESSAGE” block again mid-chat.
+
+If the message is **too vague to help** (not maternal-care-related and no clear ask), use the same gentle prompt as in **EMPATHETIC UNDERSTANDING**: invite them to share a bit more about their situation — do not lecture or list rules.
+
+-------------------------------------
 STARTING MESSAGE
 
 When a user opens the chat say:
@@ -252,6 +357,275 @@ Options:
 
 
 from typing import Tuple, List, Dict, Optional
+
+
+def _normalize_booking_typos(message: str) -> str:
+    """Fix common misspellings so intent checks still match."""
+    m = (message or "").lower().strip()
+    replacements = (
+        ("lacatation", "lactation"),
+        ("lacation", "lactation"),
+        ("lactatation", "lactation"),
+        ("laction", "lactation"),
+        ("gynocologist", "gynecologist"),
+        ("gynaecol", "gynecol"),
+    )
+    for wrong, right in replacements:
+        m = m.replace(wrong, right)
+    return m
+
+
+def _is_doctor_consult_intent(msg: str) -> bool:
+    """
+    True if the user wants a doctor/medical consultation — including specialists
+    whose title does not contain the word 'doctor' (e.g. gynecologist) and phrases
+    using 'consult' without 'consultation'.
+    """
+    if not msg:
+        return False
+    # Substrings / words that imply booking a clinician (Motherly scope).
+    specialist_markers = (
+        "gynecologist",
+        "gynaecologist",
+        "gynecol",  # covers truncated / informal
+        "obgyn",
+        "ob-gyn",
+        "ob gyn",
+        "obstetrician",
+        "women's health",
+        "womens health",
+        "paediatrician",
+        "pediatrician",
+    )
+    if any(s in msg for s in specialist_markers):
+        return True
+    if "doctor" in msg or "physician" in msg:
+        return True
+    # Phrases that usually mean doctor booking (not bare "consultation" — avoids stealing lactation).
+    if any(
+        p in msg
+        for p in (
+            "doctor consultation",
+            "video consultation",
+            "online consultation",
+            "medical consultation",
+            "consultation with a doctor",
+            "book a consultation",
+        )
+    ):
+        return True
+    # "i need to consult a gynecologist" — consult without consultation
+    if "consult" in msg and "consultant" not in msg:
+        if any(
+            x in msg
+            for x in (
+                "gyn",
+                "doctor",
+                "physician",
+                "specialist",
+                "clinic",
+                "video",
+                "book",
+                "in-clinic",
+                "in clinic",
+            )
+        ):
+            return True
+    if any(
+        w in msg
+        for w in (
+            "speak to a doctor",
+            "book doctor",
+            "book a doctor",
+            "see a doctor",
+            "clinic visit",
+            "video consult",
+        )
+    ):
+        return True
+    return False
+
+
+def _fallback_chat_reply(user_message: str, history: Optional[List[Dict[str, str]]] = None) -> str:
+    """
+    When the LLM is unavailable (no API key or API error), still respond helpfully
+    to common intents so typed/voice messages get a real answer — does not change
+    frontend booking flows; only used as backup for /chat.
+    """
+    msg = (user_message or "").lower().strip()
+    msg = _normalize_booking_typos(msg)
+    if not msg:
+        return (
+            "Hi! I'm Mothrly Assistant. Tell me what you need — for example: book a doula, "
+            "nanny, doctor consultation, or lactation support. You can also use the buttons in the chat."
+        )
+
+    # Booking & services (match phrases users type or speak)
+    if any(
+        w in msg
+        for w in (
+            "doula",
+            "book doula",
+            "book a doula",
+            "need a doula",
+            "hire a doula",
+            "birth support",
+            "labour support",
+            "labor support",
+        )
+    ):
+        return (
+            "Great! I'd love to help you with **doula** support.\n\n"
+            "**What kind of support do you need?** For example: pregnancy support, labour & delivery, "
+            "after birth care, or breastfeeding help. Describe what you're looking for, "
+            "or say **Book Doula** and use the on-screen options to continue."
+        )
+
+    if any(w in msg for w in ("nanny", "childcare", "babysit", "baby sitter", "book nanny")):
+        return (
+            "Perfect — we can set up **nanny / childcare** support for you.\n\n"
+            "I'll need a few details about your child and schedule next. If you see "
+            "**Book Nanny** in the menu, tap it to open the booking steps, or type what you need."
+        )
+
+    lactation_markers = (
+        "lactation",
+        "lactation consultant",
+        "breastfeeding",
+        "breast feeding",
+        "feeding help",
+        "book lactation",
+        "nursing",
+        "feeding support",
+        "nipple",
+        "breast milk",
+        "laction",
+    )
+    if any(w in msg for w in lactation_markers) or (
+        "consultant" in msg
+        and any(x in msg for x in ("lact", "breast", "feed", "nurs", "milk"))
+    ):
+        return (
+            "We can connect you with a **lactation consultant** for breastfeeding and feeding support.\n\n"
+            "Would you prefer a **home visit**, **online session**, or **clinic appointment**? "
+            "Reply with your choice, or tap **Book Lactation Consultant** in the menu."
+        )
+
+    if _is_doctor_consult_intent(msg):
+        return (
+            "I can help you book a **doctor consultation** — including with a **gynecologist** or other specialist.\n\n"
+            "Would you prefer **online (video)** or **in-clinic**? Tell me your preference, "
+            "or choose **Book Doctor Consultation** from the menu."
+        )
+
+    if (
+        "prenatal nutrition" in msg
+        or ("nutrition" in msg and "pregnan" in msg)
+        or "diet during pregnancy" in msg
+        or "pregnancy food" in msg
+    ):
+        return (
+            "**Prenatal nutrition** is important for you and your baby.\n\n"
+            "What would you like to learn about? You can ask about nutrients, meal ideas, "
+            "or say **Prenatal Nutrition** to see topic options."
+        )
+
+    if any(w in msg for w in ("about motherly", "about you", "who are you", "what is motherly")):
+        return (
+            "**Motherly** is a maternal care platform in Chennai — doulas, doctors, lactation consultants, "
+            "and more.\n\n**+91 99448 90577** · motherlycareethos@gmail.com\n\n"
+            "Would you like to book a service or contact support?"
+        )
+
+    if any(w in msg for w in ("contact", "support", "phone", "email", "call you")):
+        return (
+            "You can reach us at **+91 99448 90577** or **motherlycareethos@gmail.com**.\n\n"
+            "Would you like to open **Contact Support** in the chat, or tell me what you need?"
+        )
+
+    if msg in ("hi", "hey", "hello", "namaste") or any(
+        w in msg for w in ("good morning", "good afternoon", "good evening")
+    ):
+        return (
+            "Hello! I'm **Mothrly Assistant**. I can help you book a doula, nanny, doctor "
+            "consultation, lactation support, and more.\n\nWhat would you like help with today?"
+        )
+
+    if any(w in msg for w in ("thank", "thanks")):
+        return (
+            "You're welcome! If you need anything else — booking, nutrition, or support — just ask."
+        )
+
+    # Frustration, confusion, or strong language — empathic, not a repeated marketing blurb
+    frustration_markers = (
+        "what the hell",
+        "what the heck",
+        "wtf",
+        "the hell",
+        "bullshit",
+        "this sucks",
+        "so frustrated",
+        "so annoying",
+        "not working",
+        "doesn't work",
+        "doesnt work",
+        "hate this",
+        "stupid bot",
+        "useless",
+        "damn it",
+        "pissed",
+        "angry",
+    )
+    if any(p in msg for p in frustration_markers):
+        return (
+            "I'm sorry you're having a rough moment — I'm here to help, not to add to the frustration.\n\n"
+            "If something in the chat or booking isn't working, you can type **Contact Support** and our team will assist. "
+            "Otherwise, tell me in a few words what you were trying to do (e.g. book a doula or doctor), and I'll guide you."
+        )
+
+    # Very short / unclear (not a common greeting) — invite clarification
+    words = msg.split()
+    _short_ok = frozenset(
+        {
+            "hi",
+            "hey",
+            "hello",
+            "ok",
+            "okay",
+            "yes",
+            "no",
+            "maybe",
+            "hmm",
+            "hm",
+            "bye",
+            "thanks",
+            "yo",
+        }
+    )
+    if len(words) <= 2 and len(msg) <= 24:
+        _short_phrases_ok = ("thank you", "good morning", "good afternoon", "good evening", "good night")
+        if (
+            msg in _short_ok
+            or msg in _short_phrases_ok
+            or msg.startswith("hi ")
+            or msg.startswith("hey ")
+        ):
+            pass  # fall through to default off-topic reply below
+        else:
+            return (
+                "I'm not quite sure what you mean — could you say a bit more?\n\n"
+                "I'm here for **Motherly** bookings (doula, doctor, lactation, nanny, nutrition) or **Contact Support** if you need a person."
+            )
+
+    # Clearly off-topic (not maternal-care / Motherly services): scope-only reply
+    return (
+        "I'm **Mothrly Assistant**, and I only help with **Motherly** maternal care — "
+        "**doula** support, **nanny** childcare, **doctor consultation**, **lactation / feeding support**, "
+        "**prenatal nutrition**, **About Motherly**, and **Contact Support**.\n\n"
+        "I can't answer topics outside that. If you'd like to book or ask about one of these services, "
+        "say which one (or use the buttons in the chat)."
+    )
+
 
 def get_chat_response(user_message: str, history: Optional[List[Dict[str, str]]] = None) -> Tuple[str, int]:
     """
@@ -283,6 +657,14 @@ def get_chat_response(user_message: str, history: Optional[List[Dict[str, str]]]
         messages.append(msg)
     messages.append({"role": "user", "content": user_message})
 
+    client = get_openai_client()
+    if client is None:
+        print(
+            "[WARN] OPENAI_API_KEY not set — using intent fallback for /chat. "
+            "Set OPENAI_API_KEY in .env for full LLM replies."
+        )
+        return _fallback_chat_reply(user_message, history), 0
+
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -290,18 +672,14 @@ def get_chat_response(user_message: str, history: Optional[List[Dict[str, str]]]
             temperature=0.7,
             max_tokens=400,
         )
-        
+
         reply = response.choices[0].message.content
         tokens_used = response.usage.total_tokens if response.usage else 0
         return reply, tokens_used
 
     except Exception as e:
         print(f"[ERROR] OpenAI API call failed: {e}")
-        return (
-            "I'm sorry, I'm having a little trouble right now. "
-            "Please try again in a moment.",
-            0
-        )
+        return _fallback_chat_reply(user_message, history), 0
 
 
 # ── Booking description validator (LLM checks relevance & validity) ─────
@@ -320,16 +698,38 @@ def _default_invalid_message(service: str) -> str:
     return "Please tell us a little about your situation so we can help.\n\nWhat to include:\n• Why you need this booking\n• Any specific concerns or requests" + tip
 
 
-VALIDATOR_SYSTEM = """You are a validator for a maternal healthcare booking app. The user has just been asked to describe their situation or why they need the service they are booking.
+VALIDATOR_SYSTEM = """You are a validator for a maternal healthcare booking app. The user has just been asked to describe their situation for the **booked service** shown below.
 
-Your job: decide if their response is RELEVANT and VALID for completing the booking.
+**STEP A — SERVICE MISMATCH (CHECK FIRST, USING THE FULL MESSAGE)**
 
-RELEVANT & VALID = A genuine description of why they need this service or what they want from it. Accept:
+Read the **entire** user message. If they clearly need a **different** Motherly service than the one currently booked, you must **not** force them to "describe a doula need" etc.
+
+Examples of mismatch:
+- Booked **doula** but they want a **doctor / medical consultation**, symptoms, treatment, OB-GYN, physician, "book a doctor"
+- Booked **lactation** but they want **doula** or **nanny** or **doctor** (clear switch)
+- Booked **nanny** but they want **doctor** / **doula** / **lactation** (clear switch)
+- Booked **doctor** but they clearly want **doula** / **nanny** / **lactation** instead
+
+If (and only if) there is a **clear** mismatch, respond with **exactly** this one-line format (no line breaks; use a pipe `|` only as the separator shown):
+SWITCH:<doctor|doula|lactation|nanny>|<one short warm sentence; do not use the `|` character in the sentence>
+
+Example:
+SWITCH:doctor|It sounds like you're looking for a doctor consultation rather than doula support. I'll switch this for you and use what you shared for your consultation.
+
+**STEP B — IF NO MISMATCH**
+
+Decide if their response is RELEVANT and VALID **for the booked service**.
+
+Users may type or dictate informally — incomplete sentences, typos, and short phrases are OK if the meaning is clear.
+
+RELEVANT & VALID = A genuine description of why they need **this booked** service or what they want from it. Accept:
 - Needing pregnancy support, labour support, postpartum care, birth plan (for doula)
 - Describing the kind of person or experience they want (e.g. "someone patient, understanding, supportive", "positive birth experience") — these are valid
 - Needing childcare, nanny for work, child's routine (for nanny)
-- Feeding issues, lactation support, breastfeeding help (for lactation)
-- Any sincere, on-topic reason or preference for the booked service
+- Feeding issues, lactation support, breastfeeding help — including casual phrases like "baby not latching", "feeding issue", "nipple pain" (for lactation)
+- Short but clear support requests like "new mom need help" when paired with the right service context
+- For doctor consultation: wanting to see a **gynecologist**, **OB-GYN**, or any medical concern — these are always valid
+- Any sincere, on-topic reason or preference for the **booked** service
 
 NOT VALID = Reject when the response is:
 - Off-topic (e.g. feedback about the app, UI complaints, email/Gmail requirements, feature requests)
@@ -337,36 +737,154 @@ NOT VALID = Reject when the response is:
 - Spam, test text, gibberish, or clearly unrelated content
 - A question about something other than their own situation for this booking
 
-You must respond with exactly one of these formats:
+You must respond with **exactly one** of:
+SWITCH:<slug>|<sentence>
+or
 VALID
 or
 INVALID: <one short, friendly sentence>
 
-For INVALID, write a clear, helpful sentence that:
-- Asks them to describe their own situation or need for this booking (e.g. for nanny: "Please describe your childcare needs and why you're booking a nanny.")
-- Does NOT include feedback about the app, time picker, or product. Keep the tone warm and focused on their booking.
-- Optionally mention they can type or use the mic. Do not repeat the word INVALID or any prefix in your sentence."""
+For INVALID, the sentence should ask them to describe their need **for the booked service**. Do not repeat the word INVALID. Keep the tone warm."""
+
+_ALLOWED_SWITCH_SLUGS = frozenset({"doctor", "doula", "lactation", "nanny"})
 
 
-def validate_booking_description(description: str, service: str) -> Tuple[bool, str]:
+def _switch_ack_default(slug: str) -> str:
+    acks = {
+        "doctor": (
+            "It sounds like you're looking for a doctor consultation rather than your current booking. "
+            "I'll switch this for you and use what you shared for your consultation."
+        ),
+        "doula": (
+            "It sounds like you're looking for doula support. "
+            "I'll switch your booking for you and use what you shared."
+        ),
+        "lactation": (
+            "It sounds like you're looking for lactation or feeding support. "
+            "I'll switch your booking for you and use what you shared."
+        ),
+        "nanny": (
+            "It sounds like you're looking for nanny or childcare help. "
+            "I'll switch your booking for you and use what you shared."
+        ),
+    }
+    return acks.get(slug, acks["doctor"])
+
+
+def _heuristic_service_switch(description: str, booked_service: str) -> Optional[str]:
     """
-    Use the LLM to check if the user's booking description is relevant and valid
-    for the service they are booking. Returns (is_valid, message_if_invalid).
+    Detect when free text clearly requests a different service than `booked_service`.
+    Conservative: avoids switching when 'doctor' is only mentioned in passing (e.g. cleared by OB to get a doula).
+    """
+    d = (description or "").lower()
+    s = (booked_service or "").lower()
+    if len(d) < 12:
+        return None
 
-    Parameters
-    ----------
-    description : str
-        The user's free-text response when asked to describe their situation.
-    service : str
-        The booked service (e.g. "Doula", "Nanny", "Lactation Consultant").
+    def is_doula_booking():
+        return "doula" in s
+
+    def is_lactation_booking():
+        return "lactation" in s
+
+    def is_nanny_booking():
+        return "nanny" in s
+
+    def is_doctor_booking():
+        return "doctor" in s or "consultation" in s
+
+    # Strong doctor booking intent (typical user rewrites mid-flow)
+    doctor_booking_intent = (
+        ("doctor" in d or "physician" in d or "gynecologist" in d or "gynaecologist" in d)
+        and (
+            "consultation" in d
+            or "symptom" in d
+            or "health concern" in d
+            or "health concerns" in d
+            or "medical" in d
+            or "treatment" in d
+            or "book" in d
+        )
+    )
+
+    wants_doula = "doula" in d or "birth support" in d or ("labor support" in d or "labour support" in d)
+    wants_nanny = "nanny" in d or "babysitter" in d or "childcare" in d or "child care" in d
+    wants_lactation = (
+        "lactation" in d
+        or "breastfeeding" in d
+        or "breast feeding" in d
+        or "latching" in d
+        or "not feeding" in d
+    )
+
+    if doctor_booking_intent and not wants_doula:
+        if is_doula_booking() or is_lactation_booking() or is_nanny_booking():
+            return "doctor"
+
+    if wants_doula and "doctor" not in d.split("doula")[0] and not doctor_booking_intent:
+        if is_lactation_booking() or is_nanny_booking() or is_doctor_booking():
+            return "doula"
+
+    if wants_nanny and not doctor_booking_intent:
+        if is_doula_booking() or is_lactation_booking() or is_doctor_booking():
+            return "nanny"
+
+    if wants_lactation and not doctor_booking_intent:
+        if is_doula_booking() or is_nanny_booking() or is_doctor_booking():
+            return "lactation"
+
+    return None
+
+
+def _parse_validator_llm_content(content: str, service: str) -> Tuple[bool, str, Optional[str]]:
+    """Return (valid, message, redirect_slug). redirect_slug set only on successful SWITCH."""
+    raw = (content or "").strip()
+    if not raw:
+        return True, "", None
+
+    switch_m = re.match(
+        r"^SWITCH\s*:\s*(doctor|doula|lactation|nanny)\s*\|\s*(.+)$",
+        raw,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if switch_m:
+        slug = switch_m.group(1).lower()
+        msg = (switch_m.group(2) or "").strip()
+        if slug in _ALLOWED_SWITCH_SLUGS:
+            if not msg:
+                msg = _switch_ack_default(slug)
+            return True, msg, slug
+
+    reply_upper = raw.upper()
+    if reply_upper.startswith("VALID"):
+        return True, "", None
+    if reply_upper.startswith("INVALID"):
+        parts = raw.split("INVALID", 1)
+        rest = parts[1].strip() if len(parts) > 1 else ""
+        msg = rest.lstrip(": -—").strip()
+        if msg:
+            return False, msg, None
+        return False, _default_invalid_message(service), None
+    return True, "", None
+
+
+def validate_booking_description(description: str, service: str) -> Tuple[bool, str, Optional[str]]:
+    """
+    Check if the user's booking description fits the booked service.
+    If the user clearly switched to another service, returns redirect so the client can update the flow.
 
     Returns
     -------
-    Tuple[bool, str]
-        (True, "") if valid; (False, "message") if invalid, with a short message to show the user.
+    Tuple[bool, str, Optional[str]]
+        (valid, message, redirect_slug). redirect_slug is doctor|doula|lactation|nanny or None.
+        When redirect_slug is set, valid is True and message is shown to the user.
     """
     if not (description and description.strip()):
-        return False, "Please tell us a little about your situation so we can help.\n\nTip: You can type or use the mic."
+        return False, "Please tell us a little about your situation so we can help.\n\nTip: You can type or use the mic.", None
+
+    switch_slug = _heuristic_service_switch(description, service)
+    if switch_slug:
+        return True, _switch_ack_default(switch_slug), switch_slug
 
     service_lower = (service or "").lower()
     service_label = "this service"
@@ -380,11 +898,18 @@ def validate_booking_description(description: str, service: str) -> Tuple[bool, 
         service_label = "this consultation"
 
     user_prompt = f"""Booked service: {service or 'Unknown'}.
-User's response when asked to describe their situation or why they need {service_label}:
+The user was asked to describe their situation or why they need {service_label}.
 
-"{description.strip()}"
+Read their **entire** reply (all sentences). Do not decide from the first sentence only.
 
-Is this response relevant and valid (a genuine description of their need)? Reply with VALID or INVALID: <one short sentence for the user>."""
+User's reply:
+\"\"\"{description.strip()}\"\"\"
+
+Reply with SWITCH:..., VALID, or INVALID: ... per your instructions."""
+
+    client = get_openai_client()
+    if client is None:
+        return True, "", None
 
     try:
         response = client.chat.completions.create(
@@ -394,28 +919,11 @@ Is this response relevant and valid (a genuine description of their need)? Reply
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.2,
-            max_tokens=150,
+            max_tokens=200,
         )
         content = (response.choices[0].message.content or "").strip()
-        if not content:
-            return True, ""
-        reply_upper = content.upper()
-        if reply_upper.startswith("VALID"):
-            return True, ""
-        if reply_upper.startswith("INVALID"):
-            # Extract message after "INVALID" (e.g. "INVALID: please describe...")
-            parts = content.split("INVALID", 1)
-            rest = parts[1].strip() if len(parts) > 1 else ""
-            
-            # Remove leading punctuation like ":", "-", "—"
-            msg = rest.lstrip(": -—").strip()
-            
-            if msg:
-                return False, msg
-            return False, _default_invalid_message(service)
-        # Unclear LLM response: fail open so we don't block legitimate users
-        return True, ""
+        valid, msg, redir = _parse_validator_llm_content(content, service)
+        return valid, msg, redir
     except Exception as e:
         print(f"[ERROR] validate_booking_description failed: {e}")
-        # Fail open so API/key/network errors don't block the user
-        return True, ""
+        return True, "", None

@@ -13,6 +13,7 @@ const micBtn = document.querySelector(".mic-button");
 // ── State ─────────────────────────────────────────────────────────────
 let chatHistory = [];
 let bookingState = {};          // tracks 4-step booking data
+let latestBooking = null;       // stores full booking response from backend
 let isRecording = false;
 let speechRecognition = null;
 let detectedLocation = null;   // pre-fetched GPS address, filled on load
@@ -447,10 +448,10 @@ function maybeRenderBookingChipsAfterChat(userText) {
         case "doula":
             bookingState.subType = "Doula";
             renderSubOptions("doula-reason", [
-                { label: "Pregnancy Support", desc: "Guidance During Pregnancy" },
-                { label: "Labor & Delivery", desc: "Support During Birth" },
-                { label: "After Birth Care", desc: "Post-Natal Recovery Help" },
-                { label: "Breastfeeding Help", desc: "Nursing & Lactation Support" },
+                { label: "Pregnancy Support", desc: "Pregnancy Guidance" },
+                { label: "Labor & Delivery", desc: "Labor Support" },
+                { label: "After Birth Care", desc: "Postpartum Care" },
+                { label: "Breastfeeding Help", desc: "Nursing Support" },
             ]);
             break;
         case "nanny":
@@ -655,9 +656,14 @@ function updateProgress(step) {
 
 // ── Welcome message ───────────────────────────────────────────────────
 async function sendWelcomeMessage() {
+    const quickActionsBar = document.getElementById("quick-actions-bar");
+    if (quickActionsBar) quickActionsBar.classList.remove("quick-actions-bar--visible");
+
     const text = "Hi, I'm **Mothrly Assistant**. I can help you book a doula or consultation.\n\n**What do you need help with today?**";
 
     await appendMessage(text, "bot", true);
+    
+    // Render both primary grid and slider cards after the bot finishes typing
     sendWelcomeChips();
 }
 
@@ -677,10 +683,10 @@ async function handleServiceSelection(service) {
         await appendBotMessage("Great! What kind of support do you need?");
         bookingState.subType = "Doula";
         renderSubOptions("doula-reason", [
-            { label: "Pregnancy Support",    desc: "Guidance During Pregnancy" },
-            { label: "Labor & Delivery",     desc: "Support During Birth" },
-            { label: "After Birth Care",     desc: "Post-Natal Recovery Help" },
-            { label: "Breastfeeding Help",   desc: "Nursing & Lactation Support" },
+            { label: "Pregnancy Support",    desc: "Pregnancy Guidance" },
+            { label: "Labor & Delivery",     desc: "Labor Support" },
+            { label: "After Birth Care",     desc: "Postpartum Care" },
+            { label: "Breastfeeding Help",   desc: "Nursing Support" },
         ]);
         return;
     }
@@ -753,14 +759,14 @@ const PRENATAL_LEARN_OPTIONS = [
 ];
 
 function getPrenatalTopicIcon(iconKey) {
-    var s = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#C22627" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
+    var s = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
     switch (iconKey) {
-        case "diet":   s += '<path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/>'; break;
+        case "diet":   s += '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/>'; break;
         case "brain":  s += '<path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"/>'; break;
         case "symptoms": s += '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>'; break;
         case "avoid":  s += '<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>'; break;
         case "hydration": s += '<path d="M12 22c4-4 8-7.5 8-12a8 8 0 0 0-16 0c0 4.5 4 8 8 12z"/>'; break;
-        case "weight":  s += '<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/><path d="M9 6v12"/><path d="M15 6v12"/>'; break;
+        case "weight":  s += '<rect x="2" y="2" width="20" height="20" rx="2"/><circle cx="12" cy="12" r="7"/><path d="M12 12l-3 4"/><path d="M12 5v2"/><path d="M5 12h2"/><path d="M17 12h2"/><path d="M12 17v2"/>'; break;
         case "postpartum": s += '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>'; break;
         case "daily":   s += '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>'; break;
         default: s += '<circle cx="12" cy="12" r="10"/>';
@@ -819,7 +825,13 @@ function renderPrenatalLearnOptions() {
     PRENATAL_LEARN_OPTIONS.forEach(function (opt) {
         var btn = document.createElement("button");
         btn.className = "option-btn option-btn--prenatal fade-in";
-        btn.innerHTML = '<span class="btn-icon">' + getPrenatalTopicIcon(opt.icon) + '</span> ' + sentenceCaps(opt.label);
+        // Create stacked layout identical to welcome primary options
+        btn.innerHTML = `
+            <span style="display:flex;align-items:center;justify-content:center;width:20px;height:20px;margin-bottom:2px;flex-shrink:0;">
+                ${getPrenatalTopicIcon(opt.icon)}
+            </span>
+            <span style="text-align:center;">${sentenceCaps(opt.label)}</span>
+        `;
         btn.addEventListener("click", function () { handleSubOptionSelection("prenatal-learn", opt.label); });
         row.appendChild(btn);
     });
@@ -838,9 +850,9 @@ function renderSubOptions(context, options) {
         btn.className = "option-btn fade-in";
         btn.style.textAlign = "left";
         btn.innerHTML = `
-            <span style="display:flex;flex-direction:column;gap:2px;">
-                <span style="font-weight:600;font-size:13px;">${sentenceCaps(label)}</span>
-                ${desc ? `<span style="font-size:11px;color:#9CA3AF;font-weight:400;">${sentenceCaps(desc)}</span>` : ""}
+            <span style="display:flex;flex-direction:column;gap:3px;line-height:1.4;">
+                <span style="font-weight:600;font-size:11px;color:#1F2937;">${sentenceCaps(label)}</span>
+                ${desc ? `<span style="font-size:10px;color:#6B7280;font-weight:400;">${sentenceCaps(desc)}</span>` : ""}
             </span>`;
         btn.addEventListener("click", () => handleSubOptionSelection(context, label));
         row.appendChild(btn);
@@ -886,7 +898,7 @@ async function handleSubOptionSelection(context, subOption) {
     // ── Doula reason → schedule ──────────────────────────────────────
     if (context === "doula-reason") {
         bookingState.reason = subOption;
-        bookingState.service = `${bookingState.subType || "Doula"} — ${subOption}`;
+        bookingState.service = `${bookingState.subType || "Doula"} for ${subOption}`;
         await appendBotMessage(`Got it! Let me schedule your **${bookingState.service}** session.`);
         renderScheduleCard();
         return;
@@ -953,55 +965,67 @@ async function handleSubOptionSelection(context, subOption) {
 }
 
 // ── Show only the main option chips (for re-use) ──────────────────────
-function sendWelcomeChips() {
-    const optionsWrap = document.createElement("div");
-    optionsWrap.className = "welcome-options-wrap chips-container";
-
-    const primaryGrid = document.createElement("div");
-    primaryGrid.className = "welcome-options-main";
-
-    const quickActionsBar = document.getElementById("quick-actions-bar");
-    if (quickActionsBar) {
-        quickActionsBar.innerHTML = "";
-        quickActionsBar.classList.remove("quick-actions-bar--visible");
-    }
-
+function sendWelcomeChips(renderPrimary = true, renderSecondary = true) {
     const opts = [
-        { label: "Book Doula" },
-        { label: "Book Nanny" },
-        { label: "Book Doctor Consultation" },
-        { label: "Book Lactation Consultant" },
-        { label: "Prenatal Nutrition" },
-        { label: "About Motherly" },
-        { label: "Contact Support" },
+        { label: "Book Doula", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>' },
+        { label: "Book Nanny", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' },
+        { label: "Book Doctor Consultation", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>' },
+        { label: "Book Lactation Consultant", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a8 8 0 0 0 8-8c0-4.42-4-8-8-12-4 4-8 7.58-8 12a8 8 0 0 0 8 8z"/><circle cx="12" cy="14" r="2"/></svg>' },
+        { label: "Prenatal Nutrition", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>' },
+        { label: "About Motherly", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>' },
+        { label: "Contact Support", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.32 2 2 0 0 1 3.58 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.56a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.72 16z"/></svg>' },
     ];
 
     const secondarySet = new Set(["Contact Support", "Prenatal Nutrition", "About Motherly"]);
     const secondaryOrder = ["Contact Support", "Prenatal Nutrition", "About Motherly"];
-    const secondaryButtons = new Map();
 
-    opts.forEach(({ label }) => {
-        const btn = document.createElement("button");
-        const isSecondary = secondarySet.has(label);
-        btn.className = `option-btn fade-in ${isSecondary ? "option-btn--welcome-secondary" : "option-btn--welcome-primary"}`;
-        btn.textContent = sentenceCaps(label);
-        btn.addEventListener("click", () => handleServiceSelection(label));
-        if (isSecondary) secondaryButtons.set(label, btn);
-        else primaryGrid.appendChild(btn);
-    });
+    if (renderPrimary) {
+        const optionsWrap = document.createElement("div");
+        optionsWrap.className = "welcome-options-wrap chips-container";
+        const primaryGrid = document.createElement("div");
+        primaryGrid.className = "welcome-options-main";
 
-    optionsWrap.appendChild(primaryGrid);
-    messagesContainer.appendChild(optionsWrap);
-
-    if (quickActionsBar) {
-        secondaryOrder.forEach((label) => {
-            const btn = secondaryButtons.get(label);
-            if (btn) quickActionsBar.appendChild(btn);
+        opts.forEach(({ label, icon }) => {
+            if (!secondarySet.has(label)) {
+                const btn = document.createElement("button");
+                btn.className = "option-btn fade-in option-btn--welcome-primary";
+                btn.innerHTML = `
+                    <span style="display:flex;align-items:center;justify-content:center;width:18px;height:18px;margin-bottom:2px;flex-shrink:0;">${icon}</span>
+                    <span style="text-align:center;">${sentenceCaps(label)}</span>
+                `;
+                btn.addEventListener("click", () => handleServiceSelection(label));
+                primaryGrid.appendChild(btn);
+            }
         });
-        quickActionsBar.classList.add("quick-actions-bar--visible");
+        
+        optionsWrap.appendChild(primaryGrid);
+        messagesContainer.appendChild(optionsWrap);
+        scrollToShowOptions(optionsWrap);
     }
 
-    scrollToShowOptions(optionsWrap);
+    if (renderSecondary) {
+        const quickActionsBar = document.getElementById("quick-actions-bar");
+        if (quickActionsBar) {
+            quickActionsBar.innerHTML = "";
+            
+            secondaryOrder.forEach((label) => {
+                const opt = opts.find(o => o.label === label);
+                if (opt) {
+                    const btn = document.createElement("button");
+                    btn.className = "option-btn fade-in option-btn--welcome-secondary";
+                    // Use horizontal flex layout for quick-action slider cards
+                    btn.innerHTML = `
+                        <span style="display:flex;align-items:center;justify-content:center;width:14px;height:14px;flex-shrink:0;">${opt.icon}</span>
+                        <span>${sentenceCaps(opt.label)}</span>
+                    `;
+                    btn.addEventListener("click", () => handleServiceSelection(opt.label));
+                    quickActionsBar.appendChild(btn);
+                }
+            });
+            
+            quickActionsBar.classList.add("quick-actions-bar--visible");
+        }
+    }
 }
 
 // ── Step 2a — Nanny: Child details (age + names) ─────────────────────
@@ -1048,36 +1072,52 @@ window.submitNannyChildDetails = function() {
 
 // ── Contact Support Card ──────────────────────────────────────────────
 function renderContactSupportCard() {
+    const row = document.createElement("div");
+    row.className = "message bot-message fade-in";
+    
+    // Bot Avatar Box
+    const avatarHtml = `<div class="message-avatar-box" style="background:#fff;border:1px solid #E5E7EB;overflow:hidden;"><img src="/static/motherly_logo_v3.png" style="width:100%;height:100%;object-fit:cover;padding:0;"></div>`;
+    
     const card = document.createElement("div");
-    card.className = "booking-card chips-container fade-in";
+    card.className = "booking-card chips-container";
     card.id = "contact-support-card";
+    card.style.width = "fit-content";
+    card.style.minWidth = "260px";
+    card.style.padding = "14px 18px 14px 22px";
+    card.style.marginTop = "0"; // Override default margin to sit flush with avatar
+    card.style.boxShadow = "var(--shadow-bubble)"; // Match bot message depth
+    
     card.innerHTML = `
         <div class="booking-card-title">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.32 2 2 0 0 1 3.58 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.56a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.72 16z"/></svg>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
             Contact Support
         </div>
-        <div style="display:flex;flex-direction:column;gap:18px;padding:4px 0;">
-            <div style="display:flex;align-items:center;gap:12px;">
-                <span style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;background:#FEE2E2;flex-shrink:0;">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C22627" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.32 2 2 0 0 1 3.58 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.56a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.72 16z"/></svg>
+        <div style="display:flex;flex-direction:column;gap:12px;padding:4px 0;">
+            <div style="display:flex;align-items:center;gap:14px;">
+                <span style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:#FEE2E2;flex-shrink:0;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.32 2 2 0 0 1 3.58 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.56a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.72 16z"/></svg>
                 </span>
-                <a href="tel:+919944890577" style="color:#C22627;font-weight:600;font-size:15px;text-decoration:none;">+91 99448 90577</a>
+                <a href="tel:+919944890577" style="color:#9B1A52;font-weight:600;font-size:14px;text-decoration:none;">+91 99448 90577</a>
             </div>
-            <div style="display:flex;align-items:center;gap:12px;">
-                <span style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;background:#FEE2E2;flex-shrink:0;">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C22627" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+            <div style="display:flex;align-items:center;gap:14px;">
+                <span style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:#FEE2E2;flex-shrink:0;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
                 </span>
-                <a href="mailto:motherlycareethos@gmail.com" style="color:#C22627;font-weight:600;font-size:14px;text-decoration:none;">motherlycareethos@gmail.com</a>
+                <a href="mailto:motherlycareethos@gmail.com" style="color:#9B1A52;font-weight:600;font-size:13px;text-decoration:none;">motherlycareethos@gmail.com</a>
             </div>
-            <div style="display:flex;align-items:center;gap:12px;">
-                <span style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;background:#FEE2E2;flex-shrink:0;">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C22627" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+            <div style="display:flex;align-items:center;gap:14px;">
+                <span style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:#FEE2E2;flex-shrink:0;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
                 </span>
-                <span style="color:#6B7280;font-size:15px;font-weight:500;">Chennai, India</span>
+                <span style="color:#6B7280;font-size:14px;font-weight:500;">Chennai, India</span>
             </div>
         </div>
     `;
-    messagesContainer.appendChild(card);
+    
+    row.innerHTML = avatarHtml;
+    row.appendChild(card);
+    
+    messagesContainer.appendChild(row);
     scrollToBottomIfNearBottom();
 }
 
@@ -1926,7 +1966,7 @@ function renderReviewBookingCard() {
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
             Is everything correct?
         </div>
-        <p style="font-size:13px;color:#6B7280;margin-bottom:16px;">Please review your booking details before confirming.</p>
+        <p style="font-size:10.5px;color:#6B7280;margin-bottom:16px;">Please review your booking details before confirming.</p>
         <div class="confirm-grid" style="margin-bottom:20px;">
             <div class="confirm-row">
                 <span class="confirm-key">Name</span>
@@ -2012,70 +2052,101 @@ window.needToChangeBooking = function () {
 // ── Finalize Booking after Description ────────────────────────────────
 async function finalizeBooking() {
     showTyping(true);
+    latestBooking = null; // reset before new booking
+
+    // Structured booking data object matching the DB schema
+    const bookingData = {
+        name:             bookingState.name,
+        phone:            bookingState.phone,
+        email:            bookingState.email || null,
+        description:      bookingState.description || null,
+        service_provider: formatServiceForDisplay(bookingState.service),
+        relationship:     bookingState.relation || 'self',
+        date:             bookingState.date,
+        time:             bookingState.time,
+        location:         bookingState.location || null,
+        payment_status:   'pending',
+    };
 
     try {
-        const bookingResp = await fetch("/book", {
+        const bookingResp = await fetch("http://localhost:5000/api/book", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                service:  bookingState.service,
-                date:     bookingState.date,
-                time:     bookingState.time,
-                location: bookingState.location,
-                name:     bookingState.name,
-                phone:    bookingState.phone,
-                email:    bookingState.email,
-                forSelf:  bookingState.forSelf,
-                relation: bookingState.relation,
-                description: bookingState.description,
-                child_age_range: bookingState.childAgeRange || null,
-            }),
+            body: JSON.stringify(bookingData),
         });
-        const booking = bookingResp.ok ? await bookingResp.json() : { bookingId: generateLocalId(), status: "confirmed" };
+
+        const result = await bookingResp.json();
         showTyping(false);
-        renderConfirmation(booking);
-    } catch {
+
+        if (bookingResp.ok) {
+            // ✅ Store full backend response for UI use
+            latestBooking = result.booking;
+            const bookingId = result.bookingId;
+            console.log("Real Booking ID:", bookingId);
+            renderConfirmation({
+                bookingId:      bookingId,
+                payment_status: result.booking?.payment_status || 'pending',
+            });
+        } else {
+            // ❌ API returned an error status (400/500)
+            console.error("Booking API error:", result.error);
+            showTyping(false);
+            appendBotMessage("❌ Booking failed. Please try again or contact support.");
+        }
+    } catch (err) {
+        // ❌ Network / server unreachable
+        console.error("Booking fetch failed:", err);
         showTyping(false);
-        renderConfirmation({ bookingId: generateLocalId(), status: "confirmed" });
+        appendBotMessage("❌ Could not reach the server. Please check your connection and try again.");
     }
-    
+
     setInputEnabled(true);
 }
 
 // ── Step 4 — Confirmation screen ──────────────────────────────────────
+// Uses latestBooking (from backend) when available, falls back to bookingState
 function renderConfirmation(booking) {
     updateProgress(4);
-    chatHistory.push({ role: "assistant", content: "Booking confirmed: " + (booking.bookingId || "N/A") });
 
-    const date = bookingState.date;
-    const formattedDate = date
-        ? new Date(date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
+    // Prefer backend data; fall back to local bookingState
+    const b = latestBooking || {};
+    const displayId      = booking.bookingId || b.booking_id || "—";
+    const displayName    = b.name             || bookingState.name     || "—";
+    const displayService = formatServiceForDisplay(b.service_provider  || bookingState.service);
+    const displayLoc     = b.location         || bookingState.location || "—";
+    const displayPayment = b.payment_status   || booking.payment_status || "Pending";
+
+    // Date + time: prefer backend ISO strings, fall back to bookingState
+    const rawDate = b.date || bookingState.date || "";
+    const rawTime = b.time || bookingState.time || "";
+    const formattedDate = rawDate
+        ? new Date(rawDate.split('T')[0] + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
         : "—";
-    const formattedTime = bookingState.time ? formatTime(bookingState.time) : "—";
-    const paymentStatus = (booking && (booking.payment_status || booking.paymentStatus)) || bookingState.paymentStatus || "Pending";
-    const serviceLabel = formatServiceForDisplay(bookingState.service);
+    const formattedTime = rawTime ? formatTime(rawTime) : "—";
+
+    chatHistory.push({ role: "assistant", content: "Booking confirmed: " + displayId });
 
     const card = document.createElement("div");
     card.className = "confirmation-card fade-in";
     card.innerHTML = `
         <div class="confirm-header">
             <div class="confirm-check">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
             </div>
             <div>
                 <div class="confirm-title">Booking Confirmed</div>
-                <div class="confirm-id">Booking ID: <strong>${booking.bookingId || "MTH-000000"}</strong></div>
+                <div class="confirm-id">Booking ID: <strong>${displayId}</strong></div>
             </div>
         </div>
 
         <div class="confirm-grid">
             <div class="confirm-row">
                 <span class="confirm-key">Name</span>
-                <span class="confirm-val">${bookingState.name || "—"}</span>
+                <span class="confirm-val">${displayName}</span>
             </div>
             <div class="confirm-row">
                 <span class="confirm-key">Service</span>
-                <span class="confirm-val">${serviceLabel}</span>
+                <span class="confirm-val">${displayService}</span>
             </div>
             ${(bookingState.service || "").toLowerCase().includes("nanny") && bookingState.childAgeRange ? `
             <div class="confirm-row">
@@ -2085,15 +2156,15 @@ function renderConfirmation(booking) {
             ` : ""}
             <div class="confirm-row confirm-row--full">
                 <span class="confirm-key">Location</span>
-                <span class="confirm-val">${bookingState.location || "—"}</span>
+                <span class="confirm-val">${displayLoc}</span>
             </div>
             <div class="confirm-row">
-                <span class="confirm-key">Date & time</span>
+                <span class="confirm-key">Date &amp; time</span>
                 <span class="confirm-val">${formattedDate}, ${formattedTime}</span>
             </div>
             <div class="confirm-row">
                 <span class="confirm-key">Payment status</span>
-                <span class="confirm-val">${paymentStatus}</span>
+                <span class="confirm-val" style="text-transform:capitalize;">${displayPayment}</span>
             </div>
             <div class="confirm-row confirm-row--last">
                 <span class="confirm-key">Provider</span>
@@ -2154,7 +2225,7 @@ async function appendMessage(text, sender, isWelcome = false) {
     row.className = `message ${sender === "bot" ? "bot-message" : "user-message"}`;
 
     const avatarHtml = sender === "bot"
-        ? `<div class="message-avatar-box" style="background:#fff;border:1px solid #E5E7EB;overflow:hidden;"><img src="/static/motherly_logo.png?v=2" style="width:100%;height:100%;object-fit:contain;padding:2px;"></div>`
+        ? `<div class="message-avatar-box" style="background:#fff;border:1px solid #E5E7EB;overflow:hidden;"><img src="/static/motherly_logo_v3.png" style="width:100%;height:100%;object-fit:cover;padding:0;"></div>`
         : ``;
 
     row.innerHTML = `${avatarHtml}<div class="message-bubble"><p></p></div>`;
@@ -2280,7 +2351,7 @@ function setMeenaTyping(active) {
     if (active) {
         headerSubtitle.dataset.oldText = headerSubtitle.textContent;
         headerSubtitle.textContent = "Mothrly Assistant is typing...";
-        headerSubtitle.style.color = "#C22627";
+        headerSubtitle.style.color = "#9B1A52";
         headerSubtitle.style.fontWeight = "600";
     } else {
         headerSubtitle.textContent = headerSubtitle.dataset.oldText || DEFAULT_STEP_SUBTITLE;
@@ -2430,7 +2501,7 @@ function showCardError(cardId, msg) {
     const warnSvg = '<svg class="card-error-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
     err.innerHTML = warnSvg + '<span class="card-error-text"></span>';
     err.querySelector(".card-error-text").textContent = msg;
-    err.style.cssText = "color:#C22627;font-size:13px;margin:4px 0 8px;font-weight:500;display:flex;align-items:flex-start;gap:6px;";
+    err.style.cssText = "color:#9B1A52;font-size:13px;margin:4px 0 8px;font-weight:500;display:flex;align-items:flex-start;gap:6px;";
     setTimeout(() => err && err.remove(), 4000);
 }
 
@@ -2452,45 +2523,45 @@ function getIconForLabel(label) {
     const text = label.toLowerCase();
     // Contact / support
     if (text.includes("contact") || text.includes("support") || text.includes("help")) {
-        return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C22627" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2A19.79 19.79 0 0 1 11.19 19a19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.08 4.18 2 2 0 0 1 4.05 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.77.63 2.6a2 2 0 0 1-.45 2.11l-1.1 1.1a16 16 0 0 0 6 6l1.1-1.1a2 2 0 0 1 2.11-.45c.83.3 1.7.51 2.6.63A2 2 0 0 1 22 16.92z"/></svg>`;
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2A19.79 19.79 0 0 1 11.19 19a19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.08 4.18 2 2 0 0 1 4.05 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.77.63 2.6a2 2 0 0 1-.45 2.11l-1.1 1.1a16 16 0 0 0 6 6l1.1-1.1a2 2 0 0 1 2.11-.45c.83.3 1.7.51 2.6.63A2 2 0 0 1 22 16.92z"/></svg>`;
     }
 
     // About
     if (text.includes("about") || text.includes("motherly")) {
-        return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C22627" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
     }
 
     // Prenatal nutrition
     if (text.includes("nutrition") || text.includes("diet")) {
-        return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C22627" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"></path><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"></path><line x1="6" y1="1" x2="6" y2="4"></line><line x1="10" y1="1" x2="10" y2="4"></line><line x1="14" y1="1" x2="14" y2="4"></line></svg>`;
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"></path><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"></path><line x1="6" y1="1" x2="6" y2="4"></line><line x1="10" y1="1" x2="10" y2="4"></line><line x1="14" y1="1" x2="14" y2="4"></line></svg>`;
     }
 
     // Doctor consultation
     if (text.includes("doctor") || text.includes("physician") || text.includes("consultation") || text.includes("speak")) {
-        return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C22627" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 8V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v2"/><path d="M7 8h10"/><path d="M9 20h6"/><path d="M12 8v12"/><path d="M9 11h6"/></svg>`;
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 8V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v2"/><path d="M7 8h10"/><path d="M9 20h6"/><path d="M12 8v12"/><path d="M9 11h6"/></svg>`;
     }
 
     // Lactation consultant
     if (text.includes("lactation") || text.includes("breastfeed")) {
-        return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C22627" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c4-4 8-7.5 8-12a8 8 0 0 0-16 0c0 4.5 4 8 8 12z"/></svg>`;
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c4-4 8-7.5 8-12a8 8 0 0 0-16 0c0 4.5 4 8 8 12z"/></svg>`;
     }
 
     // Doula
     if (text.includes("doula")) {
-        return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C22627" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/><path d="M8.5 12.2c1.2 1.4 2.5 2.1 3.5 2.1s2.3-.7 3.5-2.1"/></svg>`;
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/><path d="M8.5 12.2c1.2 1.4 2.5 2.1 3.5 2.1s2.3-.7 3.5-2.1"/></svg>`;
     }
 
     // Nanny
     if (text.includes("nanny") || text.includes("childcare") || text.includes("baby")) {
-        return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C22627" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3"/><path d="M7 21v-2a5 5 0 0 1 10 0v2"/><path d="M5.5 12.5c.9-1.6 2.6-2.7 4.5-2.9"/><path d="M18.5 12.5c-.9-1.6-2.6-2.7-4.5-2.9"/></svg>`;
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3"/><path d="M7 21v-2a5 5 0 0 1 10 0v2"/><path d="M5.5 12.5c.9-1.6 2.6-2.7 4.5-2.9"/><path d="M18.5 12.5c-.9-1.6-2.6-2.7-4.5-2.9"/></svg>`;
     }
 
     // Pregnancy / generic care (fallback icon for other pregnancy-related chips)
     if (text.includes("pregnan") || text.includes("prenatal") || text.includes("pregnancy")) {
-        return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C22627" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 1 0 0 8a4 4 0 0 0 0-8z"/><path d="M8 22v-3a4 4 0 0 1 8 0v3"/><path d="M9.5 12c.7 1.2 1.6 2 2.5 2s1.8-.8 2.5-2"/></svg>`;
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 1 0 0 8a4 4 0 0 0 0-8z"/><path d="M8 22v-3a4 4 0 0 1 8 0v3"/><path d="M9.5 12c.7 1.2 1.6 2 2.5 2s1.8-.8 2.5-2"/></svg>`;
     }
 
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#C22627" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>`;
 }
 
 // ── Voice Input (Web Speech API) ──────────────────────────────────────
@@ -2570,3 +2641,30 @@ function showToast(msg) {
     clearTimeout(toast._timer);
     toast._timer = setTimeout(() => { toast.style.opacity = "0"; }, 3000);
 }
+
+// Temporary test function for backend connectivity
+async function testBackend() {
+  const data = {
+    name:             "Test Name",
+    phone:            "9999999999",
+    email:            "test@gmail.com",
+    description:      "Need pregnancy support",
+    service_provider: "doula",
+    relationship:     "self",
+    date:             "2026-03-26",
+    time:             "15:30:00",
+    location:         "Chennai"
+  };
+
+  const res = await fetch("http://localhost:5000/api/book", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  });
+
+  const result = await res.json();
+  console.log("Response:", result);
+}
+

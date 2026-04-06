@@ -634,6 +634,11 @@ function detectBookingIntentFromText(raw) {
     ) {
         return "doula";
     }
+    if (
+        /\b(reschedule|cancel|change booking|booking history|my booking|find my booking)\b/.test(m)
+    ) {
+        return "reschedule";
+    }
     return null;
 }
 
@@ -686,6 +691,9 @@ function maybeRenderBookingChipsAfterChat(userText) {
                 { label: "Contact Support", desc: "Talk To Our Team" },
             ]);
             break;
+        case "reschedule":
+            startRescheduleFlow();
+            break;
         case "contact":
             setTimeout(() => renderContactSupportCard(), 400);
             break;
@@ -724,17 +732,16 @@ async function sendMessage(text) {
         await appendMessage(trimmed, "user");
         userInput.value = "";
         
-        // Intercept for history phone lookup
-        if (bookingState.awaitingHistoryPhone) {
-            const phoneDigits = trimmed.replace(/\D/g, "");
-            if (phoneDigits.length === 10 || (phoneDigits.length === 12 && phoneDigits.startsWith("91"))) {
-                const finalPhone = phoneDigits.length === 12 ? phoneDigits.slice(2) : phoneDigits;
-                bookingState.phone = finalPhone;
-                bookingState.awaitingHistoryPhone = false;
-                fetchAndRenderHistory(finalPhone);
+        // Intercept for Reschedule Booking ID lookup
+        if (bookingState.awaitingRescheduleId) {
+            const bid = trimmed.toUpperCase().replace(/\s+/g, "");
+            if (bid.startsWith("BOOK-") && bid.length >= 7) {
+                bookingState.rescheduleId = bid;
+                bookingState.awaitingRescheduleId = false;
+                fetchAndRenderBookingById(bid);
                 return;
             } else {
-                appendBotMessage("Please enter a valid **10-digit phone number**.");
+                appendBotMessage("Please enter a valid **Booking ID** (e.g., BOOK-12345).");
                 setInputEnabled(true);
                 return;
             }
@@ -954,8 +961,8 @@ async function handleServiceSelection(service) {
         return;
     }
 
-    if (service === "Booking History") {
-        startBookingHistoryFlow();
+    if (service === "Reschedule Booking") {
+        startRescheduleFlow();
         return;
     }
 
@@ -1254,11 +1261,11 @@ function sendWelcomeChips(renderPrimary = true, renderSecondary = true) {
         { label: "Prenatal Nutrition", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>' },
         { label: "About Motherly", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>' },
         { label: "Contact Support", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.32 2 2 0 0 1 3.58 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.56a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.72 16z"/></svg>' },
-        { label: "Booking History", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>' },
+        { label: "Reschedule Booking", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>' },
     ];
 
-    const secondarySet = new Set(["Booking History", "Contact Support", "Prenatal Nutrition", "About Motherly"]);
-    const secondaryOrder = ["Booking History", "Contact Support", "Prenatal Nutrition", "About Motherly"];
+    const secondarySet = new Set(["Reschedule Booking", "Contact Support", "Prenatal Nutrition", "About Motherly"]);
+    const secondaryOrder = ["Reschedule Booking", "Contact Support", "Prenatal Nutrition", "About Motherly"];
 
     if (renderPrimary) {
         const optionsWrap = document.createElement("div");
@@ -3210,86 +3217,29 @@ function openMdTimePicker(timeInputEl) {
     });
 }
 
-// ── Booking History & Management ─────────────────────────────────────
-async function startBookingHistoryFlow() {
-    // Last-ditch effort to find credentials if not already set (e.g. if script loaded late)
-    if (!bookingState.phone) initSessionFromContext();
-
-    if (bookingState.phone) {
-        await appendBotMessage(`Searching for history with your registered phone number: **${bookingState.phone}**...`);
-        fetchAndRenderHistory(bookingState.phone);
-    } else {
-        await appendBotMessage("I can search for your booking history. What is the **phone number** you used for booking?");
-        bookingState.awaitingHistoryPhone = true;
-        setInputEnabled(true);
-    }
+// ── Reschedule & Cancellation Flow ──────────────────────────────────
+async function startRescheduleFlow() {
+    await appendBotMessage("I can help you reschedule or cancel your booking. Please enter your **Booking ID** (e.g., BOOK-12345):");
+    bookingState.awaitingRescheduleId = true;
+    setInputEnabled(true);
 }
 
-async function fetchAndRenderHistory(phone) {
+async function fetchAndRenderBookingById(bookingId) {
     showTyping(true);
     try {
-        const resp = await apiFetch(NODE_API_BASE, `/api/bookings/${phone}`);
+        const resp = await apiFetch(NODE_API_BASE, `/api/booking/${bookingId}`);
         const data = await resp.json();
         showTyping(false);
 
-        if (!resp.ok) throw new Error(data.error || "Failed to fetch history");
+        if (!resp.ok) throw new Error(data.error || "Booking not found");
 
-        if (data.count === 0) {
-            await appendBotMessage(`It looks like you haven't booked anything with us yet! No previous bookings found for **${phone}**.`);
-            setTimeout(() => {
-                appendBotMessage("Would you like to book your first service today?");
-                setTimeout(() => sendWelcomeChips(), 600);
-            }, 400);
-            return;
-        }
-
-        const now = new Date();
-        const todayIso = now.toISOString().split('T')[0];
-        
-        // Split into Current and Finished
-        const currentBookings = [];
-        const finishedBookings = [];
-
-        data.bookings.forEach(b => {
-            const bDate = (b.date && b.date.includes('T')) ? b.date.split('T')[0] : b.date;
-            // A booking is "Current" if it's today or in the future
-            if (bDate >= todayIso) {
-                currentBookings.push(b);
-            } else {
-                finishedBookings.push(b);
-            }
-        });
-
-        await appendBotMessage(`I found your booking history for ${phone}:`);
-
-        if (currentBookings.length > 0) {
-            const header = document.createElement("div");
-            header.className = "history-section-header";
-            header.innerHTML = `<span style="font-size:12px; font-weight:700; color:#111827; margin: 12px 0 6px 4px; display:block;">🗓️ Current Bookings</span>`;
-            messagesContainer.appendChild(header);
-            
-            // Render latest current booking first
-            currentBookings.forEach(b => renderHistoryCard(b, true));
-        }
-
-        if (finishedBookings.length > 0) {
-            const header = document.createElement("div");
-            header.className = "history-section-header";
-            header.innerHTML = `<span style="font-size:12px; font-weight:700; color:#6B7280; margin: 16px 0 6px 4px; display:block;">✅ Finished Bookings</span>`;
-            messagesContainer.appendChild(header);
-            
-            finishedBookings.forEach(b => renderHistoryCard(b, false));
-        }
+        const b = data.booking;
+        await appendBotMessage(`I found your booking **${bookingId}**:`);
+        renderHistoryCard(b, true); // Reusing history card for display
         
     } catch (err) {
-        const urlTried = makeApiUrl(NODE_API_BASE, `/api/bookings/${phone}`);
-        console.error("History fetch error:", err, "URL tried:", urlTried);
         showTyping(false);
-        await appendBotMessage(`❌ Could not reach the server to fetch your history.
-        
-        Tried: **${urlTried}**
-        
-        Please ensure the Node backend (port 5000) is running and accessible.`);
+        await appendBotMessage(`❌ Sorry, I couldn't find a booking with ID **${bookingId}**. Please check your ID and try again.`);
     }
 }
 

@@ -3,7 +3,7 @@ const router = express.Router();
 const { 
   createBooking, 
   getAllBookings, 
-  getBookingsByPhone, 
+  getBookingById,
   rescheduleBooking, 
   cancelBooking 
 } = require('../controllers/bookingController');
@@ -14,8 +14,8 @@ router.post('/book', createBooking);
 // GET /api/bookings - Retrieve all bookings (admin)
 router.get('/bookings', getAllBookings);
 
-// GET /api/bookings/:phone - Search history
-router.get('/bookings/:phone', getBookingsByPhone);
+// GET /api/booking/:booking_id - Search by ID
+router.get('/booking/:booking_id', getBookingById);
 
 // PATCH /api/reschedule/:booking_id - Change date/time
 router.patch('/reschedule/:booking_id', rescheduleBooking);

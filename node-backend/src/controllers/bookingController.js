@@ -120,22 +120,27 @@ const getAllBookings = async (req, res) => {
   }
 };
 
-// ── @route  GET /api/bookings/:phone ─────────────────────────────────
-// ── @desc   Retrieve all bookings for a specific phone number ────────
-const getBookingsByPhone = async (req, res) => {
+// ── @route  GET /api/bookings/:booking_id ─────────────────────────────────
+// ── @desc   Retrieve a specific booking by ID ────────────────────────
+const getBookingById = async (req, res) => {
   try {
-    const { phone } = req.params;
+    const { booking_id } = req.params;
     const result = await pool.query(
-      `SELECT * FROM bookings WHERE phone = $1 ORDER BY date DESC, time DESC;`,
-      [phone]
+      `SELECT * FROM bookings WHERE booking_id = $1;`,
+      [booking_id]
     );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Booking not found.' });
+    }
+
     res.status(200).json({
       count:    result.rowCount,
-      bookings: result.rows,
+      booking: result.rows[0],
     });
   } catch (err) {
-    console.error('Error fetching history:', err.message);
-    res.status(500).json({ error: 'Server error while fetching history.' });
+    console.error('Error fetching booking by ID:', err.message);
+    res.status(500).json({ error: 'Server error while fetching booking.' });
   }
 };
 
@@ -199,7 +204,7 @@ const cancelBooking = async (req, res) => {
 module.exports = { 
   createBooking, 
   getAllBookings, 
-  getBookingsByPhone, 
+  getBookingById,
   rescheduleBooking, 
   cancelBooking 
 };

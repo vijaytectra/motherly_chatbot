@@ -356,7 +356,7 @@ Options:
 • Book Doctor Consultation
 • Book Lactation Consultant
 • Prenatal Nutrition
-• About Motherly
+• Reschedule Booking
 """.strip()
 
 
@@ -477,7 +477,7 @@ def _fallback_chat_reply(user_message: str, history: Optional[List[Dict[str, str
     if not msg:
         return (
             "Hi! I'm Mothrly Assistant. Tell me what you need — for example: book a doula, "
-            "nanny, doctor consultation, or lactation support. You can also use the buttons in the chat."
+            "nanny, doctor consultation, or reschedule an existing booking. You can also use the buttons in the chat."
         )
 
     # Booking & services (match phrases users type or speak)
@@ -508,15 +508,11 @@ def _fallback_chat_reply(user_message: str, history: Optional[List[Dict[str, str
         )
     ) or (len(words) <= 3 and ("book" in msg or "service" in msg)):
         return (
-            "I'd be happy to help you with our Motherly services!\n\n"
-            "We offer **doulas, nannies, doctor consultations, lactation support, and prenatal nutrition guidance**.\n\n"
-            "What would you like to book today?\n\n"
+            "I'd be happy to help you reschedule or cancel your booking!\n\n"
+            "Please provide your **Booking ID** (e.g., BOOK-12345) so I can find your details.\n\n"
             "Options:\n"
-            "• Book Doula\n"
-            "• Book Nanny\n"
-            "• Book Doctor Consultation\n"
-            "• Book Lactation Consultant\n"
-            "• Prenatal Nutrition\n"
+            "• Register New Booking\n"
+            "• Reschedule Booking\n"
             "• About Motherly"
         )
 

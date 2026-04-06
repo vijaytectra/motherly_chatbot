@@ -1,0 +1,5 @@
+cd "n:\tectra tech works\Mothrly Chat\node-backend"
+npm run dev
+
+cd "n:\tectra tech works\Mothrly Chat\backend"
+python main.py

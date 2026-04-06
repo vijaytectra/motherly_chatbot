@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const { sendWhatsAppMessage } = require('../services/whatsappService');
 
 // ── Utility: Generate unique booking ID like BOOK-38291 ───────────────
 function generateBookingId() {
@@ -88,6 +89,12 @@ const createBooking = async (req, res) => {
     const result = await pool.query(query, values);
     const saved = result.rows[0];
 
+    console.log(`✅ [DB] Booking ${saved.booking_id} saved successfully. Triggering notifications...`);
+    
+    // ── WhatsApp Confirmation Logic ──────────────────────────────────
+    const whatsappMsg = `Hi ${saved.name} 👋, your booking for ${saved.service_provider} is confirmed ✅`;
+    sendWhatsAppMessage(saved.phone, whatsappMsg).catch(err => console.error("❌ [WhatsApp Trigger Error]", err));
+
     // Return in a unified shape for the frontend
     res.status(201).json({
       message:   'Booking successfully created',
@@ -101,21 +108,98 @@ const createBooking = async (req, res) => {
   }
 };
 
-// ── @route  GET /api/bookings ─────────────────────────────────────────
-// ── @desc   Retrieve all bookings (latest first) ─────────────────────
+// ── @route  GET /api/bookings ────────────────────────────────────────
+// ── @desc   Retrieve ALL filtered bookings (admin/debug) ─────────────
 const getAllBookings = async (req, res) => {
   try {
+    const result = await pool.query('SELECT * FROM bookings ORDER BY created_at DESC;');
+    res.status(200).json({ count: result.rowCount, bookings: result.rows });
+  } catch (err) {
+    console.error('Error fetching all bookings:', err.message);
+    res.status(500).json({ error: 'Server error while fetching all bookings.' });
+  }
+};
+
+// ── @route  GET /api/bookings/:phone ─────────────────────────────────
+// ── @desc   Retrieve all bookings for a specific phone number ────────
+const getBookingsByPhone = async (req, res) => {
+  try {
+    const { phone } = req.params;
     const result = await pool.query(
-      `SELECT * FROM bookings ORDER BY created_at DESC;`
+      `SELECT * FROM bookings WHERE phone = $1 ORDER BY date DESC, time DESC;`,
+      [phone]
     );
     res.status(200).json({
       count:    result.rowCount,
       bookings: result.rows,
     });
   } catch (err) {
-    console.error('Error fetching bookings:', err.message);
-    res.status(500).json({ error: 'Server error while fetching bookings.' });
+    console.error('Error fetching history:', err.message);
+    res.status(500).json({ error: 'Server error while fetching history.' });
   }
 };
 
-module.exports = { createBooking, getAllBookings };
+// ── @route  PATCH /api/reschedule/:booking_id ──────────────────────────
+// ── @desc   Update date/time of an existing booking ──────────────────
+const rescheduleBooking = async (req, res) => {
+  try {
+    const { booking_id } = req.params;
+    const { date, time } = req.body;
+
+    if (!date || !time) {
+      return res.status(400).json({ error: 'New date and time are required.' });
+    }
+
+    const query = `
+      UPDATE bookings 
+      SET date = $1, time = $2 
+      WHERE booking_id = $3 
+      RETURNING *;
+    `;
+    const result = await pool.query(query, [date, normalizeTime(time), booking_id]);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Booking not found.' });
+    }
+
+    res.status(200).json({
+      message: 'Booking successfully rescheduled',
+      booking: result.rows[0],
+    });
+  } catch (err) {
+    console.error('Reschedule error:', err.message);
+    res.status(500).json({ error: 'Server error while rescheduling.' });
+  }
+};
+
+// ── @route  DELETE /api/cancel/:booking_id ───────────────────────────
+// ── @desc   Cancel (delete) an existing booking ──────────────────────
+const cancelBooking = async (req, res) => {
+  try {
+    const { booking_id } = req.params;
+    const result = await pool.query(
+      `DELETE FROM bookings WHERE booking_id = $1 RETURNING *;`,
+      [booking_id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Booking not found.' });
+    }
+
+    res.status(200).json({
+      message: 'Booking successfully cancelled.',
+      bookingId: booking_id
+    });
+  } catch (err) {
+    console.error('Cancel error:', err.message);
+    res.status(500).json({ error: 'Server error while cancelling.' });
+  }
+};
+
+module.exports = { 
+  createBooking, 
+  getAllBookings, 
+  getBookingsByPhone, 
+  rescheduleBooking, 
+  cancelBooking 
+};

@@ -10,8 +10,9 @@ Endpoints:
 import os
 import random
 import string
+import time
 from datetime import datetime
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -31,10 +32,22 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    started = time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    print(
+        f"[{datetime.utcnow().isoformat()}Z] "
+        f"{request.method} {request.url.path} -> {response.status_code} ({elapsed_ms:.1f}ms)"
+    )
+    return response
 
 # ── In-memory booking store (replace with a real DB in production) ───
 bookings: Dict[str, dict] = {}
@@ -102,13 +115,19 @@ def generate_booking_id() -> str:
     digits = "".join(random.choices(string.digits, k=6))
     return f"MTH-{digits}"
 
-def send_confirmation_stub(booking: dict):
+def send_whatsapp_mock(booking: dict):
     """
-    Stub for SMS / email confirmation.
-    In production, integrate Twilio (SMS) and SendGrid / SES (email) here.
+    Mock trigger for WhatsApp confirmation.
     """
-    print(f"[STUB] SMS to {booking['phone']}: Booking {booking['bookingId']} confirmed for {booking['service']} on {booking['date']} at {booking['time']}.")
-    print(f"[STUB] Email to {booking['email']}: Booking confirmation for {booking['bookingId']}.")
+    name = booking.get('name', 'User')
+    bid = booking.get('bookingId', 'N/A')
+    svc = booking.get('service', 'Service')
+    dt = booking.get('date', 'Date')
+    tm = booking.get('time', 'Time')
+    ph = booking.get('phone', 'N/A')
+
+    msg = f"Hi {name}, your Mothrly booking {bid} ({svc}) is confirmed for {dt} at {tm}. See you soon!"
+    print(f"\n--- [WHATSAPP MOCK] ---\nTo: {ph}\nMessage: {msg}\n-----------------------\n")
 
 
 # ── Validate booking description (LLM checks relevance) ─────────────
@@ -132,7 +151,7 @@ async def chat(request: ChatRequest):
     """
     Receive a user message and return Mothrly Assistant's AI-generated reply.
     """
-    history_dicts = [{"role": msg.role, "content": msg.content} for msg in request.history]
+    history_dicts = [{"role": msg.role, "content": msg.content} for msg in (request.history or [])]
     reply, tokens_used = get_chat_response(request.message, history_dicts)
     return ChatResponse(response=reply, tokens_used=tokens_used)
 
@@ -169,9 +188,9 @@ async def book(request: BookingRequest):
     # Persist in memory
     bookings[booking_id] = booking_record
 
-    # Log & trigger confirmation stubs
+    # Log & trigger WhatsApp mock
     print(f"[BOOKING] New booking created: {booking_record}")
-    send_confirmation_stub(booking_record)
+    send_whatsapp_mock(booking_record)
 
     return BookingResponse(
         bookingId  = booking_id,
@@ -185,7 +204,7 @@ async def book(request: BookingRequest):
         message    = (
             f"Your booking ({booking_id}) has been confirmed! "
             "A Motherly care specialist will contact you shortly. "
-            "Confirmation has been sent via SMS and email."
+            "Confirmation has been sent via WhatsApp."
         ),
     )
 
@@ -199,3 +218,9 @@ async def serve_index():
 
 # Mount remaining static assets (CSS, JS, images)
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

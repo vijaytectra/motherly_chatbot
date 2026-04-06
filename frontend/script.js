@@ -2,6 +2,7 @@
  * script.js — Motherly Chat Frontend Logic v23
  * 4-step booking flow with voice input, progress bar, and auto-open.
  */
+console.log("Mothrly Chat script.js v66 (Interactive Contacts + Markdown-Links)");
 
 // ── DOM refs ──────────────────────────────────────────────────────────
 const messagesContainer = document.getElementById("chat-messages");
@@ -29,6 +30,88 @@ let sessionId = null;
 const SESSION_STORAGE_PREFIX = "mothrly_chat_session:";
 const SESSION_ACTIVE_KEY = "mothrly_chat_active_session_id";
 const SESSION_AUTOSAVE_MS = 1500;
+
+// ── API configuration (LAN/mobile-safe) ─────────────────────────────────
+const DEFAULT_NODE_API_URL = "http://localhost:5000";
+const DEFAULT_FASTAPI_URL = "http://localhost:8000";
+const LAN_NODE_API_URL = "http://192.168.68.65:5000";
+const LAN_FASTAPI_URL = "http://192.168.68.65:8000";
+
+function getBaseApiUrl(type) {
+    const isNode = type === 'node';
+    const runtime = runtimeApiConfig[isNode ? 'VITE_API_URL' : 'VITE_FASTAPI_URL'];
+    
+    // If runtime config exists, use it
+    if (runtime && runtime.trim().length > 0) {
+        return normalizeBaseUrl(runtime);
+    }
+    
+    // Default discovery logic
+    const host = window.location.hostname;
+    const port = isNode ? '5000' : '8000';
+    
+    // If we are on localhost, use localhost
+    if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') {
+        return `http://localhost:${port}`;
+    }
+    
+    // Otherwise, use the current host (good for LAN/Development testing)
+    return `http://${host}:${port}`;
+}
+
+function normalizeBaseUrl(url, fallback) {
+    const val = (url || fallback || "").trim();
+    return val.replace(/\/+$/, "");
+}
+
+const runtimeApiConfig = (typeof window !== "undefined" && window.__MOTHRLY_CONFIG__) || {};
+const NODE_API_BASE = getBaseApiUrl('node');
+const FASTAPI_API_BASE = getBaseApiUrl('fastapi');
+const ENABLE_AUTO_INPUT_FOCUS = false;
+
+function maybeFocusElement(el) {
+    if (!ENABLE_AUTO_INPUT_FOCUS || !el || typeof el.focus !== "function") return;
+    el.focus();
+}
+
+function blurActiveInput() {
+    if (typeof document === "undefined") return;
+    const active = document.activeElement;
+    if (!active || typeof active.blur !== "function") return;
+    const tag = active.tagName ? active.tagName.toLowerCase() : "";
+    const isEditable = tag === "input" || tag === "textarea" || active.isContentEditable;
+    if (isEditable) active.blur();
+}
+
+function makeApiUrl(base, path) {
+    if (!path) return base;
+    return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+async function apiFetch(base, path, options = {}) {
+    const url = makeApiUrl(base, path);
+    // 10-second default timeout to prevent infinite UI hangs
+    const timeout = options.timeout || 10000;
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
+
+    try {
+        const response = await fetch(url, {
+            ...options,
+            signal: controller.signal
+        });
+        clearTimeout(id);
+        return response;
+    } catch (err) {
+        clearTimeout(id);
+        if (err.name === 'AbortError') {
+            console.error(`[API] Timeout error (${timeout}ms): ${url}`);
+        } else {
+            console.error(`[API] Network error: ${url}`, err);
+        }
+        throw err;
+    }
+}
 
 function generateSessionId() {
     return `mcs_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -292,19 +375,129 @@ function hideTooltip() {
     }
 }
 
+/**
+ * Extracts user context (phone, name, email) from URL parameters or global config.
+ * Supports: ?uPhone=... &uName=... &uEmail=...
+ */
+function initSessionFromContext() {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        
+        // 1. Phone extraction (URL -> runtimeConfig -> localStorage -> global objects)
+        const uPhone = params.get("uPhone") || 
+                       params.get("phone") || 
+                       params.get("USER_PHONE") ||
+                       runtimeApiConfig.USER_PHONE || 
+                       runtimeApiConfig.phone ||
+                       localStorage.getItem("mothrly_user_phone") ||
+                       localStorage.getItem("user_phone") ||
+                       window.USER_PHONE || 
+                       (window.AppConfig && window.AppConfig.phone);
+
+        if (uPhone) {
+            const digits = String(uPhone).replace(/\D/g, "");
+            // Handle 91 prefix if present
+            bookingState.phone = (digits.length === 12 && digits.startsWith("91")) ? digits.slice(2) : digits;
+            console.log("[Context] Initialized phone:", bookingState.phone);
+        }
+
+        // 2. Name extraction
+        const uName = params.get("uName") || 
+                      params.get("name") || 
+                      runtimeApiConfig.USER_NAME || 
+                      runtimeApiConfig.name ||
+                      localStorage.getItem("mothrly_user_name") ||
+                      localStorage.getItem("user_name") ||
+                      window.USER_NAME ||
+                      (window.AppConfig && window.AppConfig.name);
+        if (uName) {
+            bookingState.name = uName;
+            console.log("[Context] Initialized name:", uName);
+        }
+
+        // 3. Email extraction
+        const uEmail = params.get("uEmail") || 
+                       params.get("email") || 
+                       runtimeApiConfig.USER_EMAIL || 
+                       runtimeApiConfig.email ||
+                       localStorage.getItem("mothrly_user_email") ||
+                       localStorage.getItem("user_email") ||
+                       window.USER_EMAIL ||
+                       (window.AppConfig && window.AppConfig.email);
+        if (uEmail) {
+            bookingState.email = uEmail;
+            console.log("[Context] Initialized email:", uEmail);
+        }
+    } catch (err) {
+        console.error("[Context] initialization failed:", err);
+    }
+}
+
+// ── App PostMessage Listener (Native App Integration) ─────────────────
+window.addEventListener("message", (event) => {
+    try {
+        const data = event.data;
+        if (data && typeof data === "object") {
+            console.log("[App] Incoming message context:", data);
+            
+            const rawPhone = data.phone || data.uPhone || data.USER_PHONE;
+            if (rawPhone) {
+                const digits = String(rawPhone).replace(/\D/g, "");
+                bookingState.phone = (digits.length === 12 && digits.startsWith("91")) ? digits.slice(2) : digits;
+            }
+            if (data.name || data.uName || data.USER_NAME) bookingState.name = data.name || data.uName || data.USER_NAME;
+            if (data.email || data.uEmail || data.USER_EMAIL) bookingState.email = data.email || data.uEmail || data.USER_EMAIL;
+            
+            console.log("[App] Context updated via postMessage.");
+        }
+    } catch (e) {
+        console.error("[App] Message handler error:", e);
+    }
+});
+
+/**
+ * Verifies if the Node backend (Port 5000) is reachable.
+ * Logs status to console; helps debug the "Not functional backend" reports.
+ */
+async function checkBackendHealth() {
+    try {
+        const resp = await fetch(makeApiUrl(NODE_API_BASE, "/api/health"), { mode: 'cors' });
+        if (resp.ok) {
+            console.log("[Health] Node Backend (Port 5000) is ONLINE.");
+        } else {
+            console.warn("[Health] Node Backend reached but returned error:", resp.status);
+        }
+    } catch (err) {
+        console.error("[Health] Node Backend (Port 5000) is UNREACHABLE:", err.message);
+    }
+}
+
 function openChat() {
     const panelEl = document.getElementById("chat-panel");
     const floatingChatEl = document.querySelector(".floating-chat");
     if (!panelEl || !floatingChatEl) return;
 
-    // First time opening the chat: initialize and pre-fetch location
+    // First time opening the chat: initialize and check context/permissions
     if (!chatInitialized) {
         chatInitialized = true;
-        prefetchLocation();
         
         // Clear container and send welcome message
         messagesContainer.innerHTML = "";
+
+        if (!window.isSecureContext) {
+            showSecureContextWarning();
+        }
+
         sendWelcomeMessage();
+        initSessionFromContext();
+        checkBackendHealth();
+        
+        // Show permission request card after a short delay for better UX
+        setTimeout(() => {
+            renderPermissionRequestCard();
+            prefetchLocation();
+        }, 800);
+
         updateProgress(1);
     }
 
@@ -329,7 +522,9 @@ function openChat() {
     panelEl.classList.add("chat-panel--open");
     floatingChatEl.classList.add("chat-panel-open");
 
-    setTimeout(() => userInput.focus(), 150);
+    // Prevent mobile keyboard from opening automatically on panel open.
+    blurActiveInput();
+    setTimeout(() => maybeFocusElement(userInput), 150);
     saveSessionSnapshot();
 }
 
@@ -341,6 +536,8 @@ function closeChatPanel() {
     panelEl.classList.remove("chat-panel--open");
     panelEl.classList.add("chat-panel--closed");
     floatingChatEl.classList.remove("chat-panel-open");
+    // Ensure virtual keyboard is dismissed when chat closes.
+    blurActiveInput();
 }
 
 // ── Pre-fetch location silently on page load ───────────────────────────
@@ -372,7 +569,16 @@ userInput.addEventListener("keydown", (e) => {
         handleSend();
     }
 });
-if (micBtn) micBtn.addEventListener("click", toggleVoiceInput);
+if (micBtn) {
+    micBtn.addEventListener("click", toggleVoiceInput);
+    // Mobile optimization: ensure first touch triggers efficiently
+    micBtn.addEventListener("touchend", (e) => {
+        if (!isRecording) {
+            e.preventDefault();
+            toggleVoiceInput();
+        }
+    });
+}
 
 // ── Send helpers ──────────────────────────────────────────────────────
 function handleSend() {
@@ -489,40 +695,83 @@ function maybeRenderBookingChipsAfterChat(userText) {
 }
 
 async function sendMessage(text) {
-    if (!text || !text.trim()) return;
+    console.log("[Chat] sendMessage called with:", text);
+    const trimmed = (text || "").trim();
+    if (!trimmed) {
+        console.warn("[Chat] sendMessage: empty text ignored");
+        return;
+    }
 
-    removeAllChips();
-    setInputEnabled(false);
+    try {
+        // Echo prevention: Only block if user sends the EXACT prompt (prevents loop/confusion)
+        // Fuzzy matching was causing valid user messages to "disappear".
+        const prompt = getDescriptionPromptForService(bookingState.service || "").trim();
+        const cleanT = trimmed.toLowerCase().replace(/\s+/g, ' ');
+        const cleanP = prompt.toLowerCase().replace(/\s+/g, ' ');
+        
+        // Exact match check only (safer UX)
+        if (cleanT === cleanP && cleanT.length > 20) {
+            console.warn("[Chat] Exact prompt match detected. Suppressing.");
+            showToast("Suspected echo. Please tell us your needs naturally.");
+            return;
+        }
 
-    appendMessage(text.trim(), "user");
-    userInput.value = "";
-    
-    // Intercept the message if we are waiting for a booking description
-    if (bookingState.awaitingDescription) {
-        const validation = validateBookingDescription(text.trim());
+        console.log("[Chat] Appending user message...");
+        removeAllChips();
+        setInputEnabled(false);
+
+        // Await the append so the transition to "typing" or "review" is visually synced
+        await appendMessage(trimmed, "user");
+        userInput.value = "";
+        
+        // Intercept for history phone lookup
+        if (bookingState.awaitingHistoryPhone) {
+            const phoneDigits = trimmed.replace(/\D/g, "");
+            if (phoneDigits.length === 10 || (phoneDigits.length === 12 && phoneDigits.startsWith("91"))) {
+                const finalPhone = phoneDigits.length === 12 ? phoneDigits.slice(2) : phoneDigits;
+                bookingState.phone = finalPhone;
+                bookingState.awaitingHistoryPhone = false;
+                fetchAndRenderHistory(finalPhone);
+                return;
+            } else {
+                appendBotMessage("Please enter a valid **10-digit phone number**.");
+                setInputEnabled(true);
+                return;
+            }
+        }
+
+        // Intercept the message if we are waiting for a booking description
+        if (bookingState.awaitingDescription) {
+        const validation = validateBookingDescription(trimmed);
         if (!validation.valid) {
             setInputEnabled(true);
             setTimeout(() => {
                 appendBotMessage(validation.message);
                 scrollToBottomIfNearBottom();
-                setTimeout(() => userInput.focus(), 100);
+                setTimeout(() => maybeFocusElement(userInput), 100);
             }, 400);
             return;
         }
+
         // Client-side checks passed — ask LLM to verify relevance and validity
         setInputEnabled(false);
         showTyping(true);
+        console.log("[Booking] Validating description via backend...");
+        
         try {
-            const resp = await fetch("/validate-booking-description", {
+            const resp = await apiFetch(FASTAPI_API_BASE, "/validate-booking-description", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    description: text.trim(),
+                    description: trimmed,
                     service: bookingState.service || "",
                 }),
+                timeout: 8000, // 8s specifically for validation
             });
+            
             const data = await resp.json().catch(() => ({}));
             showTyping(false);
+
             const redirectSlug = (data.redirect_service || "").toLowerCase();
             const redirectServiceMap = {
                 doctor: "Doctor Consultation",
@@ -530,68 +779,94 @@ async function sendMessage(text) {
                 lactation: "Lactation Consultant",
                 nanny: "Nanny",
             };
+
             if (redirectSlug && redirectServiceMap[redirectSlug]) {
+                console.log(`[Booking] AI suggested redirect to: ${redirectSlug}`);
                 bookingState.service = redirectServiceMap[redirectSlug];
-                bookingState.description = text.trim();
+                bookingState.description = trimmed;
                 bookingState.awaitingDescription = false;
                 bookingState.editingFromReviewTarget = null;
                 const switchMsg = (data.message && data.message.trim()) || "";
                 if (switchMsg) await appendBotMessage(switchMsg);
+                updateProgress(4); // Moving to confirmation prep
                 renderReviewBookingCard();
                 setInputEnabled(true);
-                setTimeout(() => userInput.focus(), 100);
+                setTimeout(() => maybeFocusElement(userInput), 100);
                 return;
             }
-            if (data.valid) {
-                bookingState.description = text.trim();
-                bookingState.awaitingDescription = false;
-                bookingState.editingFromReviewTarget = null;
-                renderReviewBookingCard();
+
+            if (data.valid === false) {
+                // AI strictly rejects it — give user one more chance but explain why
+                const llmMessage = (data.message && data.message.trim()) || "Please tell us why you need this service so we can help.\n\nTip: You can type or use the mic.";
+                await appendBotMessage(llmMessage);
+                setInputEnabled(true);
+                setTimeout(() => maybeFocusElement(userInput), 100);
                 return;
             }
-            const llmMessage = (data.message && data.message.trim()) || "Please tell us why you need this service so we can help.\n\nTip: You can type or use the mic.";
-            await appendBotMessage(llmMessage);
+
+            // data.valid is true OR undefined (fallback) -> Proceed
+            bookingState.description = trimmed;
+            bookingState.awaitingDescription = false;
+            bookingState.editingFromReviewTarget = null;
+            updateProgress(4);
             setInputEnabled(true);
-            setTimeout(() => userInput.focus(), 100);
+            renderReviewBookingCard();
+            return;
+
         } catch (err) {
-            console.error("Validate description error:", err);
+            const apiName = "Python/FastAPI (8000)";
+            console.error(`[Booking] ${apiName} validation failed:`, err);
             showTyping(false);
-            await appendBotMessage("We couldn't verify your response right now. Please try again, or tell us about your situation and submit.\n\nTip: You can type or use the mic.");
+            
+            // Graceful fallback: dont block the user if the server is slow or unreachable
+            bookingState.description = trimmed;
+            bookingState.awaitingDescription = false;
+            bookingState.editingFromReviewTarget = null;
+            updateProgress(4);
+            
+            if (err.name === 'AbortError') {
+                await appendBotMessage("Taking a bit long to verify, but let's proceed with your description!");
+            } else {
+                console.warn(`[Booking] Proceeding to review despite ${apiName} error.`);
+            }
+            
             setInputEnabled(true);
-            setTimeout(() => userInput.focus(), 100);
+            renderReviewBookingCard();
+            return;
         }
-        return;
     }
 
     showTyping(true);
-
     try {
-        const response = await fetch("/chat", {
+        const response = await apiFetch(FASTAPI_API_BASE, "/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message: text.trim(), history: chatHistory }),
+            body: JSON.stringify({ message: trimmed, history: chatHistory }),
         });
 
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
         const data = await response.json();
         showTyping(false);
         await appendMessage(data.response, "bot");
 
-        chatHistory.push({ role: "user", content: text.trim() });
+        chatHistory.push({ role: "user", content: trimmed });
         chatHistory.push({ role: "assistant", content: data.response });
-
-        maybeRenderBookingChipsAfterChat(text.trim());
-
+        maybeRenderBookingChipsAfterChat(trimmed);
     } catch (err) {
-        console.error("Chat error:", err);
+        const apiName = "Python/FastAPI (8000)";
+        console.error(`[Chat] ${apiName} Error:`, err);
         showTyping(false);
-        await appendMessage("Oops — I couldn't reach the server. Please check your connection and try again.", "bot");
+        await appendMessage(`Oops — I couldn't reach the ${apiName} server. Please ensure it is running.`, "bot");
     } finally {
         setInputEnabled(true);
-        setTimeout(() => userInput.focus(), 100);
+        setTimeout(() => maybeFocusElement(userInput), 100);
         saveSessionSnapshot();
     }
+} catch (err) {
+    console.error("[Chat] Global sendMessage error:", err);
+    showTyping(false);
+    setInputEnabled(true);
+}
 }
 
 // ── Reset flow ────────────────────────────────────────────────────────
@@ -679,6 +954,11 @@ async function handleServiceSelection(service) {
         return;
     }
 
+    if (service === "Booking History") {
+        startBookingHistoryFlow();
+        return;
+    }
+
     if (service === "Book Doula") {
         await appendBotMessage("Great! What kind of support do you need?");
         bookingState.subType = "Doula";
@@ -730,7 +1010,7 @@ async function handleServiceSelection(service) {
     }
 
     if (service === "About Motherly") {
-        await appendBotMessage("Here's a quick overview of **Motherly**.\n\nWe are a maternal care platform connecting mothers with certified doulas, doctors, lactation consultants, and nutritionists — all in one place.\n\nChennai, India\n+91 99448 90577\nmotherlycareethos@gmail.com\n\nWould you like to book a service now?");
+        await appendBotMessage("Here's a quick overview of **Motherly**.\n\nWe are a maternal care platform connecting mothers with certified doulas, doctors, lactation consultants, and nutritionists — all in one place.\n\n[Chennai, India](https://www.google.com/maps/search/?api=1&query=Motherly+Care+Ethos+Chennai)\n[+91 99448 90577](tel:+919944890577)\n[motherlycareethos@gmail.com](mailto:motherlycareethos@gmail.com)\n\nWould you like to book a service now?");
         renderSubOptions("about-next", [
             { label: "Book a Service",   desc: "Start booking now" },
             { label: "Contact Support",  desc: "Talk to our team" },
@@ -928,7 +1208,7 @@ async function handleSubOptionSelection(context, subOption) {
             await appendBotMessage(localTip);
             chatHistory.push({ role: "user", content: subOption });
             chatHistory.push({ role: "assistant", content: localTip });
-            setTimeout(function () { userInput.focus(); }, 100);
+            setTimeout(function () { maybeFocusElement(userInput); }, 100);
             return;
         }
 
@@ -936,7 +1216,7 @@ async function handleSubOptionSelection(context, subOption) {
         setInputEnabled(false);
         showTyping(true);
         try {
-            var resp = await fetch("/chat", {
+            var resp = await apiFetch(FASTAPI_API_BASE, "/chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ message: subOption, history: chatHistory }),
@@ -953,7 +1233,7 @@ async function handleSubOptionSelection(context, subOption) {
             await appendBotMessage("I'm sorry, I'm having a little trouble providing those details right now. Please try again soon.");
         }
         setInputEnabled(true);
-        setTimeout(function () { userInput.focus(); }, 100);
+        setTimeout(function () { maybeFocusElement(userInput); }, 100);
         return;
     }
 
@@ -974,10 +1254,11 @@ function sendWelcomeChips(renderPrimary = true, renderSecondary = true) {
         { label: "Prenatal Nutrition", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>' },
         { label: "About Motherly", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>' },
         { label: "Contact Support", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.32 2 2 0 0 1 3.58 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.56a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.72 16z"/></svg>' },
+        { label: "Booking History", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>' },
     ];
 
-    const secondarySet = new Set(["Contact Support", "Prenatal Nutrition", "About Motherly"]);
-    const secondaryOrder = ["Contact Support", "Prenatal Nutrition", "About Motherly"];
+    const secondarySet = new Set(["Booking History", "Contact Support", "Prenatal Nutrition", "About Motherly"]);
+    const secondaryOrder = ["Booking History", "Contact Support", "Prenatal Nutrition", "About Motherly"];
 
     if (renderPrimary) {
         const optionsWrap = document.createElement("div");
@@ -1031,32 +1312,72 @@ function sendWelcomeChips(renderPrimary = true, renderSecondary = true) {
 // ── Step 2a — Nanny: Child details (age + names) ─────────────────────
 function renderNannyChildDetailsCard() {
     updateProgress(2);
+
+    // Reset any previously selected age for this card
+    delete bookingState._pendingChildAge;
+
+    const AGE_OPTIONS = [
+        { value: "0-1", label: "0 – 1 year",     sub: "Infant"   },
+        { value: "1-3", label: "1 – 3 years",    sub: "Toddler"  },
+        { value: "3+",  label: "3 years & above", sub: "Child"    },
+    ];
+
     const card = document.createElement("div");
     card.className = "booking-card chips-container fade-in";
     card.id = "nanny-child-card";
-    card.innerHTML = `
-        <div class="booking-card-title">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            Tell us about the child(ren)
-        </div>
 
-        <label class="booking-label">Child's age range <span class="booking-required">*</span></label>
-        <select id="child-age" class="booking-input time-slot-select">
-            <option value="">Select age range…</option>
-            <option value="0-1">0 – 1 year (infant)</option>
-            <option value="1-3">1 – 3 years (toddler)</option>
-            <option value="3+">3 years & above</option>
-        </select>
-
-        <button onclick="submitNannyChildDetails()" class="booking-btn">Next → Schedule</button>
+    // Title row
+    const titleDiv = document.createElement("div");
+    titleDiv.className = "booking-card-title";
+    titleDiv.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Tell us about the child(ren)
     `;
+    card.appendChild(titleDiv);
+
+    // Label
+    const label = document.createElement("label");
+    label.className = "booking-label";
+    label.innerHTML = `Child's age range <span class="booking-required">*</span>`;
+    card.appendChild(label);
+
+    // 3-column age card grid
+    const grid = document.createElement("div");
+    grid.className = "nanny-age-grid";
+    grid.id = "nanny-age-grid";
+
+    AGE_OPTIONS.forEach(({ value, label: ageLabel, sub }) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "nanny-age-card";
+        btn.dataset.value = value;
+        btn.innerHTML = `
+            <span class="nanny-age-label">${sentenceCaps(ageLabel)}</span>
+            <span class="nanny-age-sub">${sentenceCaps(sub)}</span>
+        `;
+        btn.addEventListener("click", () => {
+            grid.querySelectorAll(".nanny-age-card").forEach(b => b.classList.remove("nanny-age-card--selected"));
+            btn.classList.add("nanny-age-card--selected");
+            bookingState._pendingChildAge = value;
+            clearCardError("nanny-child-card");
+        });
+        grid.appendChild(btn);
+    });
+    card.appendChild(grid);
+
+    // Submit button
+    const submitBtn = document.createElement("button");
+    submitBtn.className = "booking-btn";
+    submitBtn.textContent = "Next → Schedule";
+    submitBtn.onclick = () => submitNannyChildDetails();
+    card.appendChild(submitBtn);
+
     messagesContainer.appendChild(card);
     scrollToBottomIfNearBottom();
 }
 
 window.submitNannyChildDetails = function() {
-    const ageEl = document.getElementById("child-age");
-    const age = ageEl?.value?.trim();
+    const age = bookingState._pendingChildAge;
 
     if (!age) {
         showCardError("nanny-child-card", "Please select the child's age range.");
@@ -1064,8 +1385,9 @@ window.submitNannyChildDetails = function() {
     }
 
     bookingState.childAgeRange = age;
+    delete bookingState._pendingChildAge;
     removeAllChips();
-    const ageLabel = { "0-1": "0–1 year", "1-3": "1–3 years", "3+": "3+ years" }[age] || age;
+    const ageLabel = { "0-1": "0–1 year (infant)", "1-3": "1–3 years (toddler)", "3+": "3 years & above" }[age] || age;
     appendMessage(`Child age: ${ageLabel}`, "user");
     setTimeout(() => renderScheduleCard(), 400);
 };
@@ -1079,13 +1401,14 @@ function renderContactSupportCard() {
     const avatarHtml = `<div class="message-avatar-box" style="background:#fff;border:1px solid #E5E7EB;overflow:hidden;"><img src="/static/motherly_logo_v3.png" style="width:100%;height:100%;object-fit:cover;padding:0;"></div>`;
     
     const card = document.createElement("div");
-    card.className = "booking-card chips-container";
+    card.className = "booking-card fade-in"; // Removed chips-container to avoid conflict
     card.id = "contact-support-card";
     card.style.width = "fit-content";
     card.style.minWidth = "260px";
     card.style.padding = "14px 18px 14px 22px";
-    card.style.marginTop = "0"; // Override default margin to sit flush with avatar
-    card.style.boxShadow = "var(--shadow-bubble)"; // Match bot message depth
+    card.style.marginTop = "0";
+    card.style.boxShadow = "var(--shadow-bubble)";
+    console.log("Contact Support Card Rendered (safeguards enabled)");
     
     card.innerHTML = `
         <div class="booking-card-title">
@@ -1093,24 +1416,24 @@ function renderContactSupportCard() {
             Contact Support
         </div>
         <div style="display:flex;flex-direction:column;gap:12px;padding:4px 0;">
-            <div style="display:flex;align-items:center;gap:14px;">
+            <a href="tel:+919944890577" onclick="event.stopPropagation();" style="display:flex;align-items:center;gap:14px;text-decoration:none;cursor:pointer;transition:transform 0.2s;pointer-events:auto !important;position:relative;z-index:99;" onmouseenter="this.style.transform='translateX(4px)'" onmouseleave="this.style.transform='translateX(0)'">
                 <span style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:#FEE2E2;flex-shrink:0;">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.32 2 2 0 0 1 3.58 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.56a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.72 16z"/></svg>
                 </span>
-                <a href="tel:+919944890577" style="color:#9B1A52;font-weight:600;font-size:14px;text-decoration:none;">+91 99448 90577</a>
-            </div>
-            <div style="display:flex;align-items:center;gap:14px;">
+                <span style="color:#1F2937;font-weight:600;font-size:14px;">+91 99448 90577</span>
+            </a>
+            <a href="mailto:motherlycareethos@gmail.com" onclick="event.stopPropagation();" style="display:flex;align-items:center;gap:14px;text-decoration:none;cursor:pointer;transition:transform 0.2s;pointer-events:auto !important;position:relative;z-index:99;" onmouseenter="this.style.transform='translateX(4px)'" onmouseleave="this.style.transform='translateX(0)'">
                 <span style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:#FEE2E2;flex-shrink:0;">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
                 </span>
-                <a href="mailto:motherlycareethos@gmail.com" style="color:#9B1A52;font-weight:600;font-size:13px;text-decoration:none;">motherlycareethos@gmail.com</a>
-            </div>
-            <div style="display:flex;align-items:center;gap:14px;">
+                <span style="color:#9B1A52;font-weight:600;font-size:13px;">motherlycareethos@gmail.com</span>
+            </a>
+            <a href="https://www.google.com/maps/search/?api=1&query=Motherly+Care+Ethos+Chennai" target="_blank" onclick="event.stopPropagation();" style="display:flex;align-items:center;gap:14px;text-decoration:none;cursor:pointer;transition:transform 0.2s;pointer-events:auto !important;position:relative;z-index:99;" onmouseenter="this.style.transform='translateX(4px)'" onmouseleave="this.style.transform='translateX(0)'">
                 <span style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:#FEE2E2;flex-shrink:0;">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
                 </span>
                 <span style="color:#6B7280;font-size:14px;font-weight:500;">Chennai, India</span>
-            </div>
+            </a>
         </div>
     `;
     
@@ -1183,17 +1506,20 @@ function initSchedulePickers(todayStr) {
     dateEl.addEventListener("pointerup", openDatePicker);
     dateEl.addEventListener("click", openDatePicker);
 
-    // ── Time: custom in-panel widget (no external library) ─────────────
-    timeEl.addEventListener("pointerup", (e) => {
+    const openTimePicker = (e) => {
         e.preventDefault();
         e.stopPropagation();
         openCustomTimePicker(timeEl);
-    });
-    timeEl.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        openCustomTimePicker(timeEl);
-    });
+    };
+    timeEl.addEventListener("click", openTimePicker);
+    // On mobile, touchend fires before click — use it so the picker opens on the FIRST tap
+    if (isMobileOrTablet()) {
+        timeEl.addEventListener("touchend", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openCustomTimePicker(timeEl);
+        }, { passive: false });
+    }
 }
 
 function parseIsoDate(isoDate) {
@@ -1400,6 +1726,10 @@ function buildTimeSlots() {
 }
 
 function openCustomTimePicker(timeInputEl) {
+    if (isMobileOrTablet()) {
+        openMdTimePicker(timeInputEl);
+        return;
+    }
     const panelEl = document.getElementById("chat-panel");
     if (!panelEl) return;
 
@@ -1433,28 +1763,45 @@ function openCustomTimePicker(timeInputEl) {
     const slotsWrap = document.createElement("div");
     slotsWrap.className = "time-picker-slots";
 
-    slots.forEach(({ value24, label }) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "time-picker-slot";
-        const [slotH, slotM] = value24.split(":").map(Number);
-        const slotMinutes = (slotH * 60) + slotM;
-        const isPastSlot = isSameDayBooking && slotMinutes < minBookableMinutes;
-        if (isPastSlot) {
-            btn.classList.add("time-picker-slot--disabled");
-            btn.disabled = true;
-        }
-        if (!isPastSlot && value24 === currentValue24) btn.classList.add("time-picker-slot--selected");
-        btn.textContent = label;
-        btn.dataset.value24 = value24;
-        btn.dataset.label = label;
-        btn.addEventListener("click", () => {
-            if (btn.disabled) return;
-            slotsWrap.querySelectorAll(".time-picker-slot--selected").forEach((b) => b.classList.remove("time-picker-slot--selected"));
-            btn.classList.add("time-picker-slot--selected");
+    const renderSlots = () => {
+        const now = new Date();
+        const nowMinutes = (now.getHours() * 60) + now.getMinutes();
+        const minBookableMinutes = nowMinutes + 30; // 30-min lead
+        const currentIso = formatIsoDate(now);
+        const isToday = selectedDateIso === currentIso;
+
+        slotsWrap.innerHTML = "";
+        slots.forEach(({ value24, label }) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "time-picker-slot";
+            const [slotH, slotM] = value24.split(":").map(Number);
+            const slotMinutes = (slotH * 60) + slotM;
+            const isPastSlot = isToday && slotMinutes < minBookableMinutes;
+            
+            if (isPastSlot) {
+                btn.classList.add("time-picker-slot--disabled");
+                btn.disabled = true;
+            }
+            if (!isPastSlot && value24 === (timeInputEl.dataset.value24 || "")) {
+                btn.classList.add("time-picker-slot--selected");
+            }
+            
+            btn.textContent = label;
+            btn.dataset.value24 = value24;
+            btn.dataset.label = label;
+            btn.addEventListener("click", () => {
+                if (btn.disabled) return;
+                slotsWrap.querySelectorAll(".time-picker-slot--selected").forEach((b) => b.classList.remove("time-picker-slot--selected"));
+                btn.classList.add("time-picker-slot--selected");
+            });
+            slotsWrap.appendChild(btn);
         });
-        slotsWrap.appendChild(btn);
-    });
+    };
+
+    renderSlots();
+    // Refresh every 30 seconds while open
+    const refreshInterval = setInterval(renderSlots, 30000);
 
     const actions = document.createElement("div");
     actions.className = "time-picker-actions";
@@ -1468,6 +1815,7 @@ function openCustomTimePicker(timeInputEl) {
     okBtn.textContent = "OK";
 
     function close() {
+        clearInterval(refreshInterval);
         overlay.classList.remove("time-picker-overlay--visible");
         setTimeout(() => overlay.remove(), 200);
     }
@@ -1562,7 +1910,7 @@ function initLocationClearControl() {
         updateLocationClearButtonVisibility();
         if (statusEl) statusEl.textContent = "Location cleared. Type or tap Detect.";
         clearCardError("schedule-card");
-        locInput.focus();
+        maybeFocusElement(locInput);
     }
 
     clearBtn.addEventListener("click", (e) => {
@@ -1764,6 +2112,22 @@ window.submitSchedule = function() {
     if (!dateIso) { showCardError("schedule-card", "Please select a date."); return; }
     if (!time24) { showCardError("schedule-card", "Please select a time."); return; }
 
+    // ── Real-time validation ──
+    const now = new Date();
+    const todayIso = formatIsoDate(now);
+    if (dateIso === todayIso) {
+        const [h, m] = time24.split(":").map(Number);
+        const slotMinutes = (h * 60) + m;
+        const nowMinutes = (now.getHours() * 60) + now.getMinutes();
+        const minLeadMinutes = 30;
+        if (slotMinutes < nowMinutes + minLeadMinutes) {
+            showCardError("schedule-card", "The selected time just became unavailable. Please select a later time.");
+            timeEl.value = "";
+            delete timeEl.dataset.value24;
+            return;
+        }
+    }
+
     bookingState.location = loc;
     bookingState.date = dateIso;
     bookingState.time = time24;
@@ -1774,6 +2138,12 @@ window.submitSchedule = function() {
     const formattedDate = new Date(dateIso + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
     const formattedTime = formatTime(time24);
     appendMessage(`${loc}\n${formattedDate} at ${formattedTime}`, "user");
+
+    // If user is rescheduling an existing booking
+    if (bookingState.reschedulingBookingId) {
+        handleRescheduleSubmit();
+        return;
+    }
 
     // If user is editing only schedule from review, return to review directly.
     if (bookingState.editingFromReviewTarget === "schedule") {
@@ -1902,10 +2272,11 @@ window.submitContact = async function() {
     // Ask for description to complete the booking (question varies by service)
     bookingState.awaitingDescription = true;
     
-    setTimeout(() => {
+    setTimeout(async () => {
         const prompt = getDescriptionPromptForService(bookingState.service);
-        appendBotMessage(prompt);
+        await appendBotMessage(prompt);
         setInputEnabled(true);
+        setTimeout(() => maybeFocusElement(userInput), 100);
     }, 400);
 };
 
@@ -2069,7 +2440,7 @@ async function finalizeBooking() {
     };
 
     try {
-        const bookingResp = await fetch("http://localhost:5000/api/book", {
+        const bookingResp = await apiFetch(NODE_API_BASE, "/api/book", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(bookingData),
@@ -2089,15 +2460,15 @@ async function finalizeBooking() {
             });
         } else {
             // ❌ API returned an error status (400/500)
-            console.error("Booking API error:", result.error);
+            console.error("Booking API error:", { url: makeApiUrl(NODE_API_BASE, "/api/book"), error: result.error, result });
             showTyping(false);
             appendBotMessage("❌ Booking failed. Please try again or contact support.");
         }
     } catch (err) {
-        // ❌ Network / server unreachable
-        console.error("Booking fetch failed:", err);
+        const apiName = "Node.js (5000)";
+        console.error(`[Booking] ${apiName} fetch failed:`, { url: makeApiUrl(NODE_API_BASE, "/api/book"), error: err });
         showTyping(false);
-        appendBotMessage("❌ Could not reach the server. Please check your connection and try again.");
+        appendBotMessage(`❌ Could not reach the ${apiName} server. Please ensure it is running and try again.`);
     }
 
     setInputEnabled(true);
@@ -2206,6 +2577,10 @@ async function appendMessage(text, sender, isWelcome = false) {
         const parsed = parseOptionsFromText(text);
         displayText = parsed.body || text;
         options = parsed.options;
+        
+        // Auto-stop microphone when bot starts speaking/typing to prevent feedback echo
+        if (typeof stopVoiceInput === "function") stopVoiceInput();
+        if (userInput) userInput.value = "";
     }
 
     if (sender === "bot") {
@@ -2282,6 +2657,7 @@ function formatMessageContent(text) {
         .replace(/^#{1,3}\s+(.*)$/gim, "<strong>$1</strong>")
         .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
         .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+        .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" style="color:#9B1A52;font-weight:600;text-decoration:underline;">$1</a>')
         .replace(/\n/g, "<br>");
 }
 
@@ -2415,7 +2791,13 @@ function removeAllChips() {
 
 function showTyping(visible) {
     typingIndicator.style.display = visible ? "flex" : "none";
-    // Do not scroll when typing indicator shows — user controls scroll position
+    
+    // Disable mic button while bot is typing to prevent accidental voice input/echoes
+    if (micBtn) {
+        micBtn.disabled = visible;
+        micBtn.style.opacity = visible ? "0.5" : "1";
+        micBtn.style.pointerEvents = visible ? "none" : "auto";
+    }
 }
 
 function setInputEnabled(enabled) {
@@ -2585,6 +2967,7 @@ function toggleVoiceInput() {
 
     speechRecognition.onstart = () => {
         isRecording = true;
+        setInputEnabled(false); // Locked during active recording
         micBtn.classList.add("recording");
         micBtn.title = "Stop recording";
         showToast("Listening… speak now");
@@ -2598,22 +2981,44 @@ function toggleVoiceInput() {
         if (event.results[event.results.length - 1].isFinal) {
             stopVoiceInput();
             // Let the user review/edit the transcript and tap Send manually
-            userInput.focus();
-            showToast("Review your message, then tap Send");
+            setTimeout(() => {
+                setInputEnabled(true);
+                maybeFocusElement(userInput);
+                showToast("Review your message, then tap Send");
+            }, 100);
         }
     };
 
     speechRecognition.onerror = (e) => {
         stopVoiceInput();
-        if (e.error !== 'aborted') showToast("Voice error: " + e.error);
+        let msg = "Voice error: " + e.error;
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+            if (!window.isSecureContext) {
+                msg = "Chromium blocks Voice on HTTP. To fix: Go to chrome://flags/#unsafely-treat-insecure-origin-as-secure, add this IP, and Relaunch.";
+            } else {
+                msg = "Microphone access denied. Please allow it in settings.";
+            }
+        } else if (e.error === 'no-speech') {
+            msg = "No speech detected. Try again.";
+        }
+        if (e.error !== 'aborted') {
+            // Use longer timeout for the developer-fix message
+            showToast(msg, (msg.includes("chrome://flags") ? 10000 : 3000));
+        }
     };
 
     speechRecognition.onend = () => {
-        // Only cleanup UI if we weren't already stopped from a final result
+        // Only cleanup UI if we weren't already stopped
         if (isRecording) stopVoiceInput();
     };
 
-    speechRecognition.start();
+    try {
+        speechRecognition.start();
+    } catch (err) {
+        console.error("STT Start Error:", err);
+        stopVoiceInput();
+        showToast("Speech service failed to start.");
+    }
 }
 
 function stopVoiceInput() {
@@ -2626,45 +3031,356 @@ function stopVoiceInput() {
         try { speechRecognition.abort(); } catch {}
         speechRecognition = null;
     }
+    // Crucial: ALWAYS re-enable UI after voice phase ends
+    setInputEnabled(true);
 }
 
-function showToast(msg) {
+function showToast(msg, duration = 3000) {
     let toast = document.getElementById("voice-toast");
     if (!toast) {
         toast = document.createElement("div");
         toast.id = "voice-toast";
-        toast.style.cssText = `position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1F2937;color:#fff;padding:10px 18px;border-radius:20px;font-size:13px;z-index:9999;opacity:0;transition:opacity 0.3s;pointer-events:none;white-space:nowrap;`;
+        toast.style.cssText = `position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1F2937;color:#fff;padding:12px 20px;border-radius:12px;font-size:13px;z-index:9999;opacity:0;transition:opacity 0.3s;pointer-events:none;max-width:320px;text-align:center;line-height:1.4;`;
         document.body.appendChild(toast);
     }
     toast.textContent = msg;
     toast.style.opacity = "1";
     clearTimeout(toast._timer);
-    toast._timer = setTimeout(() => { toast.style.opacity = "0"; }, 3000);
+    toast._timer = setTimeout(() => { toast.style.opacity = "0"; }, duration);
 }
 
-// Temporary test function for backend connectivity
-async function testBackend() {
-  const data = {
-    name:             "Test Name",
-    phone:            "9999999999",
-    email:            "test@gmail.com",
-    description:      "Need pregnancy support",
-    service_provider: "doula",
-    relationship:     "self",
-    date:             "2026-03-26",
-    time:             "15:30:00",
-    location:         "Chennai"
-  };
+// ── Secure Context & Permissions ─────────────────────────────────────
+function showSecureContextWarning() {
+    // Avoid double banners
+    if (document.querySelector(".secure-context-banner")) return;
+    
+    const banner = document.createElement("div");
+    banner.className = "secure-context-banner";
+    banner.style.cssText = "background:#FEF2F2; color:#991B1B; padding:12px; font-size:11px; border-bottom:1px solid #FEE2E2; display:flex; gap:8px; line-height:1.3;";
+    banner.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <div>
+            <b>Secure Context Missing (HTTP):</b> Voice input is blocked on insecure connections. To enable it on this IP, see the instructions in the "Connect Now" card or use <b>chrome://flags</b>.
+        </div>
+    `;
+    const container = document.getElementById("chat-panel");
+    if (container) container.prepend(banner);
+}
 
-  const res = await fetch("http://localhost:5000/api/book", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
-  });
+function renderPermissionRequestCard() {
+    const isSecure = window.isSecureContext;
+    const card = document.createElement("div");
+    card.className = "permission-card fade-in";
+    
+    let insecureNotice = "";
+    if (!isSecure) {
+        insecureNotice = `
+            <div style="margin-top:10px; padding:10px; background:#FFF7ED; border:1px solid #FED7AA; border-radius:8px; font-size:11px; color:#9A3412;">
+                <strong>Developer Fix (for HTTP/Mobile):</strong><br/>
+                1. Open: <code style="background:#fff;padding:2px 4px;border-radius:4px;">chrome://flags/#unsafely-treat-insecure-origin-as-secure</code><br/>
+                2. Add: <code style="background:#fff;padding:2px 4px;border-radius:4px;">${window.location.origin}</code><br/>
+                3. Set to <strong>Enabled</strong> & <strong>Relaunch</strong>.
+            </div>
+        `;
+    }
 
-  const result = await res.json();
-  console.log("Response:", result);
+    card.innerHTML = `
+        <div class="permission-card__title">Enable Location & Voice</div>
+        <div class="permission-card__text">
+            To provide the best support, we need access to your location and microphone.
+            ${insecureNotice}
+        </div>
+        <button class="permission-card__btn">${isSecure ? 'Connect Now' : 'I have enabled flags'}</button>
+    `;
+    
+    const btn = card.querySelector(".permission-card__btn");
+    btn.onclick = () => {
+        triggerPermissionPrompts();
+        if (isSecure) {
+            card.style.opacity = "0";
+            setTimeout(() => card.remove(), 400);
+        } else {
+            showToast("Checking permissions… if still blocked, ensure flags are set.");
+        }
+    };
+
+    messagesContainer.appendChild(card);
+    scrollToRevealMessage(card);
+}
+
+async function triggerPermissionPrompts() {
+    showToast("Requesting permissions…");
+    
+    // 1. Geolocation
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(() => {
+            prefetchLocation(); // Refresh now that we have permission
+        }, (err) => {
+            console.warn("Location permission denied or failed:", err);
+        });
+    }
+
+    // 2. Microphone (Dummy trigger via Speech API)
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+        try {
+            const dummyRec = new SpeechRecognition();
+            dummyRec.onstart = () => {
+                setTimeout(() => {
+                    try { dummyRec.abort(); } catch {}
+                }, 100);
+            };
+            dummyRec.start();
+        } catch (err) {
+            console.warn("STT Permission trigger failed:", err);
+        }
+    }
+}
+
+// ── Mobile/Tablet Platform Detection ──────────────────────────────────
+function isMobileOrTablet() {
+    const ua = navigator.userAgent;
+    const isMobileString = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+    const isSmallScreen = window.innerWidth <= 1024;
+    return isMobileString || isSmallScreen;
+}
+
+// ── Circular Native/System Time Picker for Mobile ────────────────────
+function openMdTimePicker(timeInputEl) {
+    let native = document.getElementById("native-time-input");
+    if (!native) {
+        native = document.createElement("input");
+        native.type = "time";
+        native.id = "native-time-input";
+        native.setAttribute("aria-hidden", "true");
+        // Position over the time input so the browser considers it user-activated
+        native.style.cssText = "position:fixed;top:50%;left:50%;width:1px;height:1px;opacity:0.01;pointer-events:none;z-index:-1;";
+        document.body.appendChild(native);
+    }
+    
+    native.onchange = () => {
+        const hhmm = native.value; // "HH:mm"
+        if (hhmm) {
+            const [h, m] = hhmm.split(":").map(Number);
+            const period = h >= 12 ? "PM" : "AM";
+            const displayH = h % 12 || 12;
+            const label = `${displayH}:${String(m).padStart(2, '0')} ${period}`;
+            
+            // ── Mobile validation ──
+            const dateEl = document.getElementById("date-input");
+            const dateIso = dateEl?.dataset?.iso || "";
+            const now = new Date();
+            const todayIso = formatIsoDate(now);
+            if (dateIso === todayIso) {
+                const slotMinutes = (h * 60) + m;
+                const nowMinutes = (now.getHours() * 60) + now.getMinutes();
+                if (slotMinutes < nowMinutes + 30) {
+                    showCardError("schedule-card", "Please select a future time (at least 30 mins from now).");
+                    native.value = "";
+                    return;
+                }
+            }
+
+            timeInputEl.dataset.value24 = hhmm;
+            timeInputEl.value = label;
+            
+            clearCardError("schedule-card");
+            timeInputEl.dispatchEvent(new Event('input', { bubbles: true }));
+            timeInputEl.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    };
+    
+    // Set current value if it exists
+    if (timeInputEl.dataset.value24) {
+        native.value = timeInputEl.dataset.value24;
+    }
+
+    // Focus first, then trigger picker in the next frame — this ensures
+    // the browser sees it as a direct user gesture continuation
+    native.focus({ preventScroll: true });
+    requestAnimationFrame(() => {
+        if (typeof native.showPicker === 'function') {
+            try {
+                native.showPicker();
+                return;
+            } catch (_) { /* fall through */ }
+        }
+        // Fallback: simulate a click
+        native.click();
+    });
+}
+
+// ── Booking History & Management ─────────────────────────────────────
+async function startBookingHistoryFlow() {
+    // Last-ditch effort to find credentials if not already set (e.g. if script loaded late)
+    if (!bookingState.phone) initSessionFromContext();
+
+    if (bookingState.phone) {
+        await appendBotMessage(`Searching for history with your registered phone number: **${bookingState.phone}**...`);
+        fetchAndRenderHistory(bookingState.phone);
+    } else {
+        await appendBotMessage("I can search for your booking history. What is the **phone number** you used for booking?");
+        bookingState.awaitingHistoryPhone = true;
+        setInputEnabled(true);
+    }
+}
+
+async function fetchAndRenderHistory(phone) {
+    showTyping(true);
+    try {
+        const resp = await apiFetch(NODE_API_BASE, `/api/bookings/${phone}`);
+        const data = await resp.json();
+        showTyping(false);
+
+        if (!resp.ok) throw new Error(data.error || "Failed to fetch history");
+
+        if (data.count === 0) {
+            await appendBotMessage(`It looks like you haven't booked anything with us yet! No previous bookings found for **${phone}**.`);
+            setTimeout(() => {
+                appendBotMessage("Would you like to book your first service today?");
+                setTimeout(() => sendWelcomeChips(), 600);
+            }, 400);
+            return;
+        }
+
+        const now = new Date();
+        const todayIso = now.toISOString().split('T')[0];
+        
+        // Split into Current and Finished
+        const currentBookings = [];
+        const finishedBookings = [];
+
+        data.bookings.forEach(b => {
+            const bDate = (b.date && b.date.includes('T')) ? b.date.split('T')[0] : b.date;
+            // A booking is "Current" if it's today or in the future
+            if (bDate >= todayIso) {
+                currentBookings.push(b);
+            } else {
+                finishedBookings.push(b);
+            }
+        });
+
+        await appendBotMessage(`I found your booking history for ${phone}:`);
+
+        if (currentBookings.length > 0) {
+            const header = document.createElement("div");
+            header.className = "history-section-header";
+            header.innerHTML = `<span style="font-size:12px; font-weight:700; color:#111827; margin: 12px 0 6px 4px; display:block;">🗓️ Current Bookings</span>`;
+            messagesContainer.appendChild(header);
+            
+            // Render latest current booking first
+            currentBookings.forEach(b => renderHistoryCard(b, true));
+        }
+
+        if (finishedBookings.length > 0) {
+            const header = document.createElement("div");
+            header.className = "history-section-header";
+            header.innerHTML = `<span style="font-size:12px; font-weight:700; color:#6B7280; margin: 16px 0 6px 4px; display:block;">✅ Finished Bookings</span>`;
+            messagesContainer.appendChild(header);
+            
+            finishedBookings.forEach(b => renderHistoryCard(b, false));
+        }
+        
+    } catch (err) {
+        const urlTried = makeApiUrl(NODE_API_BASE, `/api/bookings/${phone}`);
+        console.error("History fetch error:", err, "URL tried:", urlTried);
+        showTyping(false);
+        await appendBotMessage(`❌ Could not reach the server to fetch your history.
+        
+        Tried: **${urlTried}**
+        
+        Please ensure the Node backend (port 5000) is running and accessible.`);
+    }
+}
+
+function renderHistoryCard(b, isCurrent = true) {
+    const card = document.createElement("div");
+    card.className = "booking-card history-card fade-in";
+    if (!isCurrent) card.style.opacity = "0.85"; // Dim finished bookings slightly
+    
+    // In PostgreSQL, DATE comes back as "YYYY-MM-DD", but let's be safe
+    const dateStr = (b.date && b.date.includes('T')) ? b.date.split('T')[0] : b.date;
+    const formattedDate = dateStr
+        ? new Date(dateStr + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })
+        : "—";
+    const formattedTime = b.time ? formatTime(b.time) : "—";
+    
+    card.innerHTML = `
+        <div class="booking-card-title" style="font-size:13px; color:#9B1A52; display:flex; align-items:center; justify-content:space-between;">
+            <div style="display:flex; align-items:center; gap:6px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                Booking ${b.booking_id}
+            </div>
+            ${!isCurrent ? '<span style="font-size:9px; background:#F3F4F6; color:#6B7280; padding:2px 6px; border-radius:10px;">Finished</span>' : ""}
+        </div>
+        <div style="font-size:11.5px; margin:8px 0; color:#4B5563; line-height:1.6;">
+            <b>Service:</b> ${b.service_provider}<br>
+            <b>Date:</b> ${formattedDate} at ${formattedTime}<br>
+            <b>Location:</b> ${b.location || "—"}
+        </div>
+        ${isCurrent ? `
+        <div style="display:flex; gap:8px; margin-top:12px;">
+            <button class="booking-btn" style="padding:8px 14px; font-size:11px; flex:1;" onclick="initiateReschedule('${b.booking_id}')">Reschedule</button>
+            <button class="booking-btn" style="padding:8px 14px; font-size:11px; flex:1; background:#F3F4F6; color:#1F2937; box-shadow:none;" onclick="initiateCancel('${b.booking_id}')">Cancel</button>
+        </div>
+        ` : ""}
+    `;
+    messagesContainer.appendChild(card);
+    scrollToRevealMessage(card);
+}
+
+window.initiateReschedule = function(bookingId) {
+    bookingState.reschedulingBookingId = bookingId;
+    appendBotMessage(`Sure! Let's pick a new date and time for booking **${bookingId}**.`);
+    renderScheduleCard();
+};
+
+async function handleRescheduleSubmit() {
+    const bookingId = bookingState.reschedulingBookingId;
+    const payload = {
+        date: bookingState.date,
+        time: bookingState.time
+    };
+    
+    showTyping(true);
+    try {
+        const resp = await apiFetch(NODE_API_BASE, `/api/reschedule/${bookingId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        const result = await resp.json();
+        showTyping(false);
+
+        if (resp.ok) {
+            const formattedDate = new Date(payload.date + "T00:00:00").toLocaleDateString("en-IN", {day:"numeric", month:"long"});
+            await appendBotMessage(`✅ Success! Your booking **${bookingId}** has been rescheduled to **${formattedDate}** at **${formatTime(payload.time)}**.`);
+            bookingState.reschedulingBookingId = null;
+        } else {
+            throw new Error(result.error || "Failed to reschedule");
+        }
+    } catch (err) {
+        showTyping(false);
+        appendBotMessage(`❌ Reschedule failed: ${err.message}`);
+    }
+}
+
+window.initiateCancel = async function(bookingId) {
+    if (!confirm(`Are you sure you want to cancel booking ${bookingId}?`)) return;
+    
+    showTyping(true);
+    try {
+        const resp = await apiFetch(NODE_API_BASE, `/api/cancel/${bookingId}`, { method: "DELETE" });
+        const result = await resp.json();
+        showTyping(false);
+        if (resp.ok) {
+            await appendBotMessage(`✅ Booking **${bookingId}** has been successfully cancelled.`);
+        } else {
+            appendBotMessage(`❌ Cancellation failed: ${result.error || "Please contact support."}`);
+        }
+    } catch (err) {
+        showTyping(false);
+        appendBotMessage("❌ Error communicating with server.");
+    }
 }
 

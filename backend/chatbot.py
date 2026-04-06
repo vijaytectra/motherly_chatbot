@@ -89,28 +89,31 @@ Then **right away** continue the correct service flow — no hesitation, no robo
 **Goal:** Detect **true** intent from the **full** message, override the wrong flow instantly, redirect seamlessly.
 
 -------------------------------------
-EMPATHETIC UNDERSTANDING & NATURAL INPUT (CRITICAL)
+INTENT & SENTIMENT HANDLING (CRITICAL)
 
-• Users may reply by **text or voice**. Accept natural, conversational answers — not only perfectly structured ones.
-• If the user’s message is **relevant** to the question or to maternal care, **accept it and move forward** — do not ask them to rephrase unless there is truly nothing to go on.
-• Do **not** require perfect grammar or full sentences.
-• Assume **minor speech-to-text errors** and infer meaning generously.
+1. SENTIMENT AWARENESS:
+• Positive (thankful, excited): Respond with warmth and appreciation.
+• Neutral (asking for info, "what do you do"): Be direct, clear, and efficient.
+• Negative (frustrated, angry, testing the bot): Be calm, empathetic, and patient. Do not argue. Use phrases like "I understand" or "I'm here to help."
 
-Intent from casual phrasing — treat as valid and continue (examples):
-• "baby not latching properly" → feeding / lactation–type need
-• "new mom, need help" → general maternal support → guide with booking options
-• "feeding issue" → feeding or lactation support
+2. UNRELATED / OFF-TOPIC INFORMATION:
+• If the user asks an unrelated question (e.g., "weather", "news", "trivia"), politely explain that you are a specialized assistant for Motherly's maternal care.
+• Do not answer the unrelated question. Redirect them to booking services by providing the "Options:" list.
 
-**Too vague or unusable** (e.g. only "ok", "hmm", random unrelated words, or clearly abusive with no care-related content): respond politely, once, with warmth:
-"I'm here to help you get the right support. Could you please share a bit more about your situation so I can assist you better?"
-Do **not** sound strict or dismissive.
+3. RESPONSE STYLE:
+• Responses must be SHORT (max 2-3 sentences).
+• Format options exactly like this to ensure they appear as clickable buttons:
+  Options:
+  • Option 1
+  • Option 2
+  ...
 
-**Service redirection** when intent doesn’t match the current flow:
-If they clearly need a **different** Motherly service, use this style (fill in the bracketed part):
-"It sounds like you might be looking for [service]. I can help guide you there. Would you like me to switch and assist you with that instead?"
-Examples: **nanny / childcare** → suggest nanny; **doctor, medical, health concern** → doctor consultation; **general baby care** → suggest the best fit (doula, lactation, or doctor as appropriate).
+4. SERVICE MATCHING:
+• "What do you do?" or "What services?" → Present all core booking options.
+• "Consultation" or "Specialist" → Direct to Doctor Consultation.
+• "Baby care" or "Help with infant" → Suggest Doula or Nanny.
 
-**Goal:** Understand **intent**, not exact words; reduce friction; guide smoothly whether input is structured or messy.
+Goal: Detect true intent from the FULL message, acknowledge sentiment, and redirect to Motherly's main services using structural options.
 
 -------------------------------------
 AVAILABLE SERVICES
@@ -314,10 +317,11 @@ INTENT FIRST — SERVICE-RELATED VS OFF-TOPIC (CRITICAL)
 
 Before you reply, decide whether the message relates to **Motherly’s services** (bookings and care we offer):
 
-**SERVICE-RELATED** (always help — includes informal English, typos, and short phrases):
-• Wanting to book or learn about: **doula**, **nanny / childcare**, **doctor / OB / consultation** (in-clinic or video), **lactation / breastfeeding / feeding support** (including misspellings like *lacatation*, *laction*), **prenatal nutrition**, **about Motherly**, **contact / support**, pregnancy or postpartum care in line with these services.
-• **Doctor-type requests:** Any medical specialist who sees patients counts as **Speak to a Doctor / doctor consultation** — including **gynecologist**, **gynaecologist**, **OB-GYN**, **obstetrician**, **women’s health doctor**, **paediatrician**, and common misspellings like *gynocologist*. If the user asks to **consult** or **see** one of these, treat it as SERVICE-RELATED and help book a doctor consultation — **never** refuse as off-topic.
-• Phrases like “i wanna book…”, “need a…”, “schedule a…”, “need to consult a…” for any of the above.
+SERVICE-RELATED (always help — includes informal English, typos, and short phrases):
+• General queries about Motherly, services, or "what do you do".
+• Wanting to book or learn about: **doula**, **nanny / childcare**, **doctor / OB / consultation** (in-clinic or video), **lactation / breastfeeding / feeding support**, **prenatal nutrition**, **About Motherly**, **Contact / Support**, pregnancy or postpartum care.
+• Keywords: "services", "see services", "booking", "book", "help", "consult", "doctor", "specialist".
+• **Doctor-type requests:** Any medical specialist (gynaecologist, OB-GYN, pediatrician) is SERVICE-RELATED. Help them book a doctor consultation.
 
 If **SERVICE-RELATED**: answer helpfully, confirm you’re setting up or guiding them — **do not** say you “might not have the right answer” or refuse. Interpret typos generously (e.g. *lacatation* → lactation consultant).
 
@@ -440,6 +444,21 @@ def _is_doctor_consult_intent(msg: str) -> bool:
             "see a doctor",
             "clinic visit",
             "video consult",
+            # Common symptoms → doctor consultation
+            "fever",
+            "pain",
+            "blood",
+            "bleeding",
+            "headache",
+            "vomit",
+            "nausea",
+            "unwell",
+            "feeling sick",
+            "stomach ache",
+            "cramp",
+            "emergency",
+            "medicine",
+            "prescription",
         )
     ):
         return True
@@ -454,6 +473,7 @@ def _fallback_chat_reply(user_message: str, history: Optional[List[Dict[str, str
     """
     msg = (user_message or "").lower().strip()
     msg = _normalize_booking_typos(msg)
+    words = msg.split()
     if not msg:
         return (
             "Hi! I'm Mothrly Assistant. Tell me what you need — for example: book a doula, "
@@ -472,13 +492,32 @@ def _fallback_chat_reply(user_message: str, history: Optional[List[Dict[str, str
             "birth support",
             "labour support",
             "labor support",
+            "booking",
+            "book services",
+            "book a service",
+            "i want to book",
+            "i wanna book",
+            "what services",
+            "available services",
+            "support services",
+            "services",
+            "see your services",
+            "service list",
+            "what do you do",
+            "what can you do",
         )
-    ):
+    ) or (len(words) <= 3 and ("book" in msg or "service" in msg)):
         return (
-            "Great! I'd love to help you with **doula** support.\n\n"
-            "**What kind of support do you need?** For example: pregnancy support, labour & delivery, "
-            "after birth care, or breastfeeding help. Describe what you're looking for, "
-            "or say **Book Doula** and use the on-screen options to continue."
+            "I'd be happy to help you with our Motherly services!\n\n"
+            "We offer **doulas, nannies, doctor consultations, lactation support, and prenatal nutrition guidance**.\n\n"
+            "What would you like to book today?\n\n"
+            "Options:\n"
+            "• Book Doula\n"
+            "• Book Nanny\n"
+            "• Book Doctor Consultation\n"
+            "• Book Lactation Consultant\n"
+            "• Prenatal Nutrition\n"
+            "• About Motherly"
         )
 
     if any(w in msg for w in ("nanny", "childcare", "babysit", "baby sitter", "book nanny")):
@@ -532,14 +571,15 @@ def _fallback_chat_reply(user_message: str, history: Optional[List[Dict[str, str
 
     if any(w in msg for w in ("about motherly", "about you", "who are you", "what is motherly")):
         return (
-            "**Motherly** is a maternal care platform in Chennai — doulas, doctors, lactation consultants, "
-            "and more.\n\n**+91 99448 90577** · motherlycareethos@gmail.com\n\n"
+            "**Motherly** is a maternal care platform in [Chennai, India](https://www.google.com/maps/search/?api=1&query=Motherly+Care+Ethos+Chennai) — doulas, doctors, lactation consultants, "
+            "and more.\n\n[+91 99448 90577](tel:+919944890577) · [motherlycareethos@gmail.com](mailto:motherlycareethos@gmail.com)\n\n"
             "Would you like to book a service or contact support?"
         )
 
     if any(w in msg for w in ("contact", "support", "phone", "email", "call you")):
         return (
-            "You can reach us at **+91 99448 90577** or **motherlycareethos@gmail.com**.\n\n"
+            "You can reach us at [+91 99448 90577](tel:+919944890577) or [motherlycareethos@gmail.com](mailto:motherlycareethos@gmail.com).\n\n"
+            "Our office is located at [Chennai, India](https://www.google.com/maps/search/?api=1&query=Motherly+Care+Ethos+Chennai).\n\n"
             "Would you like to open **Contact Support** in the chat, or tell me what you need?"
         )
 
@@ -584,7 +624,6 @@ def _fallback_chat_reply(user_message: str, history: Optional[List[Dict[str, str
         )
 
     # Very short / unclear (not a common greeting) — invite clarification
-    words = msg.split()
     _short_ok = frozenset(
         {
             "hi",
@@ -617,13 +656,18 @@ def _fallback_chat_reply(user_message: str, history: Optional[List[Dict[str, str
                 "I'm here for **Motherly** bookings (doula, doctor, lactation, nanny, nutrition) or **Contact Support** if you need a person."
             )
 
-    # Clearly off-topic (not maternal-care / Motherly services): scope-only reply
+    # Clearly off-topic, fuzzy, or "what do you do" type query — scopes and provides options
     return (
-        "I'm **Mothrly Assistant**, and I only help with **Motherly** maternal care — "
-        "**doula** support, **nanny** childcare, **doctor consultation**, **lactation / feeding support**, "
-        "**prenatal nutrition**, **About Motherly**, and **Contact Support**.\n\n"
-        "I can't answer topics outside that. If you'd like to book or ask about one of these services, "
-        "say which one (or use the buttons in the chat)."
+        "Mothrly Assistant is here to help you book maternal care and support.\n\n"
+        "We specialize in **doulas, nannies, and doctor consultations** for mothers and babies.\n\n"
+        "How can I help you today?\n\n"
+        "Options:\n"
+        "• Book Doula\n"
+        "• Book Nanny\n"
+        "• Book Doctor Consultation\n"
+        "• Book Lactation Consultant\n"
+        "• Prenatal Nutrition\n"
+        "• About Motherly"
     )
 
 

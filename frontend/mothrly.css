@@ -28,6 +28,12 @@
     --bg-chip: #F3F4F6;
     --hover-chip: #E5E7EB;
 
+    /* Scrollbar */
+    --sb-track: transparent;
+    --sb-thumb: #D1D5DB;
+    --sb-thumb-hover: #e8b4b5; /* Slightly darker than FCE4EC for better contrast */
+    --sb-size: 5px;
+
     /* Semantic */
     --online: #10B981;
     --success: #059669;
@@ -59,6 +65,49 @@ body {
 
 body {
     min-height: 100vh;
+}
+
+/* ── Custom Scrollbar (Premium, Lite look) ───────────────────── */
+.chat-messages::-webkit-scrollbar,
+.quick-actions-bar::-webkit-scrollbar,
+.time-picker-slots::-webkit-scrollbar,
+.date-picker-overlay::-webkit-scrollbar {
+    width: var(--sb-size);
+    height: var(--sb-size); /* Horizontal height */
+}
+
+.chat-messages::-webkit-scrollbar-track,
+.quick-actions-bar::-webkit-scrollbar-track,
+.time-picker-slots::-webkit-scrollbar-track,
+.date-picker-overlay::-webkit-scrollbar-track {
+    background: var(--sb-track);
+    border-radius: 10px;
+}
+
+.chat-messages::-webkit-scrollbar-thumb,
+.quick-actions-bar::-webkit-scrollbar-thumb,
+.time-picker-slots::-webkit-scrollbar-thumb,
+.date-picker-overlay::-webkit-scrollbar-thumb {
+    background: var(--sb-thumb);
+    border-radius: 10px;
+    border: 1px solid transparent; /* padding effect */
+    background-clip: padding-box;
+}
+
+.chat-messages::-webkit-scrollbar-thumb:hover,
+.quick-actions-bar::-webkit-scrollbar-thumb:hover,
+.time-picker-slots::-webkit-scrollbar-thumb:hover,
+.date-picker-overlay::-webkit-scrollbar-thumb:hover {
+    background-color: var(--sb-thumb-hover);
+}
+
+/* Firefox support */
+.chat-messages,
+.quick-actions-bar,
+.time-picker-slots,
+.date-picker-overlay {
+    scrollbar-width: thin;
+    scrollbar-color: var(--sb-thumb) var(--sb-track);
 }
 
 .page-content {
@@ -266,24 +315,84 @@ body {
     }
 }
 
-/* Mobile: chat panel full width, aligned with safe area */
-@media (max-width: 480px) {
-    .chat-wrapper.chat-panel {
-        right: 12px !important;
-        left: 12px !important;
-        bottom: 12px !important;
-        width: calc(100% - 24px);
+/* Mobile & tablet: full-screen chat app */
+@media (max-width: 768px) {
+    .floating-chat {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+    }
+
+    .chat-wrapper {
         max-width: 100%;
-        height: min(500px, 85vh);
-        border-radius: 14px;
+    }
+
+    .chat-wrapper.chat-panel {
+        top: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        width: 100vw;
+        height: 100dvh;
+        height: 100vh; /* fallback */
+        max-width: 100vw;
+        max-height: 100dvh;
+        border-radius: 0;
+        box-shadow: none;
+        transform: translateY(100%);
+    }
+
+    .chat-wrapper.chat-panel.chat-panel--open {
+        transform: translateY(0);
+    }
+
+    .chat-header {
+        padding: 10px 12px;
+    }
+
+    .header-center h1 {
+        font-size: 15px;
+    }
+
+    .header-center .subtitle {
+        font-size: 12px;
+    }
+
+    .chat-messages {
+        padding: 8px 8px 6px;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .typing-indicator {
+        padding: 0 10px 8px;
+    }
+
+    .chat-input-bar {
+        position: sticky;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        padding: 8px 10px;
+        padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .chat-input {
+        font-size: 16px; /* prevents iOS zoom-on-focus */
+    }
+
+    .input-wrapper {
+        padding: 8px 10px;
+    }
+
+    .icon-button {
+        width: 34px;
+        height: 34px;
     }
 }
 
 /* Very small screens: ensure content doesn't overflow */
 @media (max-width: 360px) {
-    .chat-wrapper.chat-panel {
-        border-radius: 12px 12px 0 0;
-    }
     .chat-messages {
         padding-left: 10px;
         padding-right: 10px;
@@ -818,6 +927,58 @@ body {
     gap: 6px;
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
     animation: fade-up 0.35s ease forwards;
+}
+
+/* Nanny Age selection cards: 3-column grid */
+.nanny-age-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin: 6px 0;
+    width: 100%;
+}
+
+.nanny-age-card {
+    background: #FFFFFF;
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    min-height: 64px;
+    box-sizing: border-box;
+    gap: 2px;
+}
+
+.nanny-age-card:hover {
+    border-color: var(--primary-light);
+    background: #FAF5F5;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(197, 55, 113, 0.08);
+}
+
+.nanny-age-card--selected {
+    background: rgba(197, 55, 113, 0.04);
+    border-color: var(--primary);
+    box-shadow: inset 0 0 0 0.5px var(--primary);
+}
+
+.nanny-age-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.2;
+}
+
+.nanny-age-sub {
+    font-size: 9px;
+    font-weight: 500;
+    color: var(--text-muted);
 }
 
 .booking-card-title {
@@ -1416,10 +1577,40 @@ body {
 }
 
 .self-check-label input[type="checkbox"] {
-    width: 16px;
-    height: 16px;
-    accent-color: var(--primary);
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--border);
+    border-radius: 4px;
+    background: #fff;
     cursor: pointer;
+    position: relative;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    margin: 0;
+}
+
+.self-check-label input[type="checkbox"]:checked {
+    background: var(--primary);
+    border-color: var(--primary);
+}
+
+.self-check-label input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 5px;
+    top: 1px;
+    width: 5px;
+    height: 10px;
+    border: solid white;
+    border-width: 0 2.5px 2.5px 0;
+    transform: rotate(45deg);
+}
+
+.self-check-label input[type="checkbox"]:hover {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-light);
 }
 
 .email-hint,
@@ -1800,4 +1991,87 @@ body {
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+/* ── iOS typing zoom fix (chat inputs) ───────────────────────────── */
+@media (max-width: 768px) {
+    .chat-wrapper.chat-panel input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    .chat-wrapper.chat-panel textarea,
+    .chat-wrapper.chat-panel select,
+    .chat-wrapper.chat-panel .chat-input,
+    .chat-wrapper.chat-panel .booking-input {
+        font-size: 16px !important;
+    }
+}
+
+/* iOS Safari text autosizing guard */
+@supports (-webkit-touch-callout: none) {
+    html,
+    body {
+        -webkit-text-size-adjust: 100%;
+    }
+}
+/* ── Secure Context Warning & Permissions ───────────────────────── */
+.secure-context-banner {
+    background: #FEF2F2;
+    border-bottom: 1px solid #FEE2E2;
+    padding: 10px 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 12px;
+    color: #991B1B;
+    line-height: 1.5;
+    animation: slideInDown 0.3s ease-out;
+}
+
+.secure-context-banner svg {
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+@keyframes slideInDown {
+    from { transform: translateY(-100%); }
+    to { transform: translateY(0); }
+}
+
+.permission-card {
+    background: #F0F9FF;
+    border: 1px solid #BAE6FD;
+    border-radius: 12px;
+    padding: 16px;
+    margin: 12px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    animation: fadeIn 0.4s ease-out;
+}
+
+.permission-card__title {
+    font-weight: 600;
+    font-size: 14px;
+    color: #0369A1;
+}
+
+.permission-card__text {
+    font-size: 13px;
+    color: #0C4A6E;
+    line-height: 1.4;
+}
+
+.permission-card__btn {
+    align-self: flex-start;
+    background: #0EA5E9;
+    color: #fff;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.permission-card__btn:hover {
+    background: #0284C7;
 }

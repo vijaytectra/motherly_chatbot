@@ -14,7 +14,9 @@ const micBtn = document.querySelector(".mic-button");
 // ── State ─────────────────────────────────────────────────────────────
 let chatHistory = [];
 let bookingState = {};          // tracks 4-step booking data
+let bookingPayload = null;      // parsed from <booking_data>...</booking_data>
 let latestBooking = null;       // stores full booking response from backend
+let bookingAutoFinalizeInFlight = false;
 let isRecording = false;
 let speechRecognition = null;
 let detectedLocation = null;   // pre-fetched GPS address, filled on load
@@ -81,6 +83,40 @@ function blurActiveInput() {
     const tag = active.tagName ? active.tagName.toLowerCase() : "";
     const isEditable = tag === "input" || tag === "textarea" || active.isContentEditable;
     if (isEditable) active.blur();
+}
+
+function normalizeBookingPhone(rawPhone) {
+    const digits = String(rawPhone || "").replace(/\D/g, "");
+    if (digits.length === 10) return `91${digits}`;
+    if (digits.length === 12 && digits.startsWith("91")) return digits;
+    return null;
+}
+
+function extractBookingDataFromReply(replyText) {
+    const text = String(replyText || "");
+    const m = text.match(/<booking_data>\s*([\s\S]*?)\s*<\/booking_data>/i);
+    if (!m) return null;
+    try {
+        const parsed = JSON.parse(m[1]);
+        return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (err) {
+        console.warn("[Booking] Could not parse <booking_data> JSON:", err);
+        return null;
+    }
+}
+
+function hasCompleteBookingData(payload) {
+    if (!payload || typeof payload !== "object") return false;
+    const required = [
+        "customer_name",
+        "customer_phone",
+        "service_type",
+        "provider_name",
+        "appointment_date",
+        "appointment_time",
+        "location",
+    ];
+    return required.every((k) => String(payload[k] || "").trim().length > 0);
 }
 
 function makeApiUrl(base, path) {
@@ -395,10 +431,11 @@ function initSessionFromContext() {
                        (window.AppConfig && window.AppConfig.phone);
 
         if (uPhone) {
-            const digits = String(uPhone).replace(/\D/g, "");
-            // Handle 91 prefix if present
-            bookingState.phone = (digits.length === 12 && digits.startsWith("91")) ? digits.slice(2) : digits;
-            console.log("[Context] Initialized phone:", bookingState.phone);
+            const normalized = normalizeBookingPhone(uPhone);
+            if (normalized) {
+                bookingState.phone = normalized;
+                console.log("[Context] Initialized phone:", bookingState.phone);
+            }
         }
 
         // 2. Name extraction
@@ -442,8 +479,8 @@ window.addEventListener("message", (event) => {
             
             const rawPhone = data.phone || data.uPhone || data.USER_PHONE;
             if (rawPhone) {
-                const digits = String(rawPhone).replace(/\D/g, "");
-                bookingState.phone = (digits.length === 12 && digits.startsWith("91")) ? digits.slice(2) : digits;
+                const normalized = normalizeBookingPhone(rawPhone);
+                if (normalized) bookingState.phone = normalized;
             }
             if (data.name || data.uName || data.USER_NAME) bookingState.name = data.name || data.uName || data.USER_NAME;
             if (data.email || data.uEmail || data.USER_EMAIL) bookingState.email = data.email || data.uEmail || data.USER_EMAIL;
@@ -854,7 +891,38 @@ async function sendMessage(text) {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         showTyping(false);
+        const taggedBookingData = extractBookingDataFromReply(data.response);
+        if (taggedBookingData) {
+            bookingPayload = taggedBookingData;
+            console.log('[Mothrly] booking_data detected:', bookingPayload);
+            const normalized = normalizeBookingPhone(taggedBookingData.customer_phone || "");
+            if (normalized) bookingState.phone = normalized;
+            if (taggedBookingData.customer_name) bookingState.name = taggedBookingData.customer_name;
+            if (taggedBookingData.service_type) bookingState.service = taggedBookingData.service_type;
+            if (taggedBookingData.location) bookingState.location = taggedBookingData.location;
+            if (taggedBookingData.appointment_date) bookingState.date = taggedBookingData.appointment_date;
+            if (taggedBookingData.appointment_time) bookingState.time = taggedBookingData.appointment_time;
+        }
         await appendMessage(data.response, "bot");
+
+        if (
+            taggedBookingData &&
+            hasCompleteBookingData(taggedBookingData) &&
+            !bookingAutoFinalizeInFlight
+        ) {
+            let phone = (bookingPayload && bookingPayload.customer_phone) || '';
+            phone = phone.toString().trim();
+            if (phone && !phone.startsWith('+')) phone = '+' + phone;
+            if (bookingPayload) bookingPayload.customer_phone = phone;
+            bookingAutoFinalizeInFlight = true;
+            setTimeout(async () => {
+                try {
+                    await finalizeBooking();
+                } finally {
+                    bookingAutoFinalizeInFlight = false;
+                }
+            }, 120);
+        }
 
         chatHistory.push({ role: "user", content: trimmed });
         chatHistory.push({ role: "assistant", content: data.response });
@@ -895,6 +963,7 @@ async function resetChat() {
 
         chatHistory = [];
         bookingState = {};
+        bookingPayload = null;
         messagesContainer.innerHTML = "";
         showTyping(false);
         updateProgress(1);
@@ -1231,6 +1300,8 @@ async function handleSubOptionSelection(context, subOption) {
             if (!resp.ok) throw new Error("Chat request failed");
             var data = await resp.json();
             showTyping(false);
+            const taggedBookingData = extractBookingDataFromReply(data.response);
+            if (taggedBookingData) bookingPayload = taggedBookingData;
             await appendBotMessage(data.response);
             chatHistory.push({ role: "user", content: subOption });
             chatHistory.push({ role: "assistant", content: data.response });
@@ -2184,7 +2255,7 @@ function renderContactCard() {
         <input type="text" id="c-name" class="booking-input" placeholder="Your Full Name" autocomplete="name">
 
         <label class="booking-label">Phone Number <span class="booking-required">*</span></label>
-        <input type="tel" id="c-phone" class="booking-input" placeholder="+91 98765 43210" autocomplete="tel">
+        <input type="tel" id="c-phone" class="booking-input" placeholder="91XXXXXXXXXX" autocomplete="tel">
 
         <label class="booking-label">Email Address</label>
         <input type="email" id="c-email" class="booking-input" placeholder="you@example.com (optional)" autocomplete="email">
@@ -2243,28 +2314,25 @@ window.submitContact = async function() {
     const email   = document.getElementById("c-email")?.value.trim();
     const self_   = document.getElementById("c-self")?.checked;
     const relation= self_ ? "self" : document.getElementById("c-relation")?.value;
-    const phoneDigits = (phoneRaw || "").replace(/\D/g, "");
-    const phoneLocal = phoneDigits.length === 12 && phoneDigits.startsWith("91")
-        ? phoneDigits.slice(2)
-        : phoneDigits;
+    const normalizedPhone = normalizeBookingPhone(phoneRaw);
 
     if (!name)   { showCardError("contact-card", "Please enter your Full Name."); return; }
     if (/\d/.test(name)) {
         showCardError("contact-card", "Full name should not contain numbers.");
         return;
     }
-    if (phoneLocal.length !== 10) {
-        showCardError("contact-card", "Please enter a valid 10-digit phone number carefully."); return;
+    if (!normalizedPhone) {
+        showCardError("contact-card", "Please enter phone in 91XXXXXXXXXX format."); return;
     }
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         showCardError("contact-card", "Please enter a valid email address."); return;
     }
     if (!relation) { showCardError("contact-card", "Please select your relation to the patient."); return; }
 
-    bookingState = { ...bookingState, name, phone: phoneLocal, email, relation, forSelf: self_, step: 3 };
+    bookingState = { ...bookingState, name, phone: normalizedPhone, email, relation, forSelf: self_, step: 3 };
 
     removeAllChips();
-    appendMessage(`${name} | ${phoneLocal} | ${email}`, "user");
+    appendMessage(`${name} | ${normalizedPhone} | ${email}`, "user");
 
     // If user is editing only contact details from review, return to review directly.
     if (bookingState.editingFromReviewTarget === "contact") {
@@ -2383,6 +2451,10 @@ function renderReviewBookingCard() {
 }
 
 window.confirmBookingSubmit = function () {
+    let phone = (bookingPayload && bookingPayload.customer_phone) || '';
+    phone = phone.toString().trim();
+    if (phone && !phone.startsWith('+')) phone = '+' + phone;
+    if (bookingPayload) bookingPayload.customer_phone = phone;
     const card = document.getElementById("review-booking-card");
     if (card) card.remove();
     finalizeBooking();
@@ -2433,27 +2505,30 @@ async function finalizeBooking() {
     latestBooking = null; // reset before new booking
 
     // Structured booking data object matching the DB schema
+    const normalizedPhone = normalizeBookingPhone(
+        (bookingPayload && bookingPayload.customer_phone) || bookingState.phone || ""
+    );
     const bookingData = {
-        name:             bookingState.name,
-        phone:            bookingState.phone,
-        email:            bookingState.email || null,
-        description:      bookingState.description || null,
-        service_provider: formatServiceForDisplay(bookingState.service),
-        relationship:     bookingState.relation || 'self',
-        date:             bookingState.date,
-        time:             bookingState.time,
-        location:         bookingState.location || null,
-        payment_status:   'pending',
+        customer_name: (bookingPayload && bookingPayload.customer_name) || bookingState.name,
+        customer_phone: normalizedPhone ? (normalizedPhone.startsWith('+') ? normalizedPhone : `+${normalizedPhone}`) : null,
+        service_type: (bookingPayload && bookingPayload.service_type) || formatServiceForDisplay(bookingState.service),
+        provider_name: (bookingPayload && bookingPayload.provider_name) || "no preference",
+        appointment_date: (bookingPayload && bookingPayload.appointment_date) || bookingState.date,
+        appointment_time: (bookingPayload && bookingPayload.appointment_time) || bookingState.time,
+        location: (bookingPayload && bookingPayload.location) || bookingState.location || null,
     };
+    const NODE_BOOKING_URL = "http://localhost:5000/api/book";
+    console.log('[Mothrly] calling /api/book with:', bookingData);
 
     try {
-        const bookingResp = await apiFetch(NODE_API_BASE, "/api/book", {
+        const bookingResp = await fetch(NODE_BOOKING_URL, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(bookingData),
         });
 
         const result = await bookingResp.json();
+        console.log('[Mothrly] Node response:', bookingResp.status, result);
         showTyping(false);
 
         if (bookingResp.ok) {

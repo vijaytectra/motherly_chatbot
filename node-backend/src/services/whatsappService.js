@@ -1,74 +1,78 @@
-/**
- * services/whatsappService.js
- * Professional WhatsApp Cloud API Service Module.
- * Responsible for sending outbound messages via Meta Graph API.
- */
 const axios = require('axios');
 
-// ── Environment Configuration ─────────────────────────────────────────
-const ACCESS_TOKEN = process.env.ACCESS_TOKEN;
-const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
+const ACCESS_TOKEN =
+  process.env.ACCESS_TOKEN || process.env.WHATSAPP_TOKEN || '';
+const PHONE_NUMBER_ID =
+  process.env.PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID || '';
 
-const isConfigured = ACCESS_TOKEN && PHONE_NUMBER_ID;
+const isConfigured = Boolean(
+  String(ACCESS_TOKEN).trim() && String(PHONE_NUMBER_ID).trim()
+);
 
-/**
- * sendWhatsAppMessage(to, message)
- * @param {string} to - Recipient phone number in international format (+91XXXXXXXXXX)
- * @param {string} message - The text body to send
- * @returns {Promise<Object>} - API response data or error
- */
-async function sendWhatsAppMessage(to, message) {
-  // Validate recipient
-  if (!to) {
-    console.error('❌ [WhatsApp] Error: No recipient phone number provided.');
-    return;
+function normalizePhone(number) {
+  if (!number) return null;
+  let n = number.toString().trim().replace(/\s+/g, '');
+  if (!n.startsWith('+')) n = '+' + n;
+  return n;
+}
+
+async function postWhatsAppText(to, body) {
+  const url = `https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`;
+  return axios.post(
+    url,
+    {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'text',
+      text: { body },
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${ACCESS_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+}
+
+async function sendWhatsAppMessage(booking) {
+  const customerPhone = normalizePhone(booking?.customer_phone);
+
+  const customerMessage = `👶 Mothrly – Booking Confirmed!
+
+Hi ${booking.customer_name}, your booking is confirmed. Here are your details:
+
+📋 Booking ID   : ${booking.booking_id}
+🩺 Service       : ${booking.service_type}
+👩‍⚕️ Provider      : ${booking.provider_name}
+📅 Date & Time  : ${booking.appointment_date}, ${booking.appointment_time}
+📍 Location      : ${booking.location}
+
+Thank you for choosing Mothrly. We look forward to caring for you. 💛
+Need to reschedule or cancel? Reply to this message or call us.`;
+
+  if (!isConfigured) {
+    console.log('[WhatsApp] ⚠️ Mock mode — credentials missing');
+    console.log('[WhatsApp] Mock message to:', customerPhone);
+    return { mock: true };
   }
 
-  // Ensure format is E.164 (removing any non-digit characters except possibly +)
-  const formattedTo = to.replace(/[^0-9]/g, '');
-
-  console.log(`\n🟢 [WhatsApp Service] Attempting to send message to: ${formattedTo}`);
-
-  if (isConfigured) {
+  if (customerPhone) {
     try {
-      // Endpoint: v19.0 as per senior engineer specification
-      const url = `https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`;
-
-      const payload = {
-        messaging_product: 'whatsapp',
-        to: formattedTo,
-        type: 'text',
-        text: {
-          body: message
-        }
-      };
-
-      const response = await axios.post(url, payload, {
-        headers: {
-          'Authorization': `Bearer ${ACCESS_TOKEN}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      console.log(`✅ [WhatsApp] Message sent successfully to ${formattedTo}. ID: ${response.data.messages[0].id}`);
-      return response.data;
-
+      console.log('[WhatsApp] Sending to customer:', customerPhone);
+      const result = await postWhatsAppText(customerPhone, customerMessage);
+      console.log('[WhatsApp] ✅ Customer message sent successfully');
+      return { customer: result?.data || true };
     } catch (err) {
-      const errorData = err.response ? err.response.data : err.message;
-      console.error('❌ [WhatsApp] API Error:', JSON.stringify(errorData, null, 2));
-      
-      // We do not throw the error to ensure the calling process (booking) continues
-      return { error: true, data: errorData };
+      console.error(
+        '[WhatsApp] ❌ Failed to send to customer:',
+        err.response?.data || err.message
+      );
+      return { error: true, data: err.response?.data || err.message };
     }
   } else {
-    // MOCK MODE: Professional fallback for local development
-    console.warn('⚠️ [WhatsApp] Configuration missing (ACCESS_TOKEN / PHONE_NUMBER_ID).');
-    console.log('--------------------------------------------------');
-    console.log(`📡 MOCK WHATSAPP MESSAGE`);
-    console.log(`To: ${formattedTo}`);
-    console.log(`Body: ${message}`);
-    console.log('--------------------------------------------------');
-    return { mock: true, sent: true };
+    console.warn('⚠️ WhatsApp skipped: missing customer_phone');
+    return { skipped: true };
   }
 }
 

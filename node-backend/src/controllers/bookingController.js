@@ -1,25 +1,18 @@
 const pool = require('../config/db');
 const { sendWhatsAppMessage } = require('../services/whatsappService');
 
-// ── Utility: Generate unique booking ID like BOOK-38291 ───────────────
 function generateBookingId() {
   const num = Math.floor(10000 + Math.random() * 90000);
   return `BOOK-${num}`;
 }
 
-// ── Utility: Normalize time to HH:MM:SS for PostgreSQL TIME column ────
-// Handles: "10:00", "10:00:00", "10:30 AM", "3:30 PM", "15:30"
 function normalizeTime(raw) {
   if (!raw) return null;
   const str = String(raw).trim();
 
-  // Already in HH:MM:SS
   if (/^\d{1,2}:\d{2}:\d{2}$/.test(str)) return str;
-
-  // HH:MM — just append seconds
   if (/^\d{1,2}:\d{2}$/.test(str)) return `${str}:00`;
 
-  // 12h with AM/PM — e.g. "3:30 PM" or "10 AM"
   const ampm = str.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i);
   if (ampm) {
     let h = parseInt(ampm[1], 10);
@@ -30,89 +23,170 @@ function normalizeTime(raw) {
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
   }
 
-  // Fallback — return as-is and let Postgres decide
   return str;
 }
 
-// ── @route  POST /api/book ────────────────────────────────────────────
-// ── @desc   Store a new booking ──────────────────────────────────────
+function normalizeInternationalPhone(rawPhone) {
+  if (!rawPhone || typeof rawPhone !== 'string') return null;
+  const digits = rawPhone.replace(/[^0-9]/g, '');
+  if (digits.length < 10 || digits.length > 15) return null;
+  return digits;
+}
+
 const createBooking = async (req, res) => {
-  try {
-    const {
-      name,
-      phone,
-      email,
-      description,
-      service_provider,
-      relationship,
-      date,
-      time,
-      location,
-      payment_status,
-    } = req.body;
+  const body = req.body || {};
+  const serviceRaw = body.service_type || body.service || body.service_provider;
+  const customerNameRaw = body.customer_name || body.name;
+  const customerPhoneRaw = body.customer_phone || body.phone;
+  const providerNameRaw = body.provider_name || body.service_provider || 'no preference';
+  const appointmentDateRaw = body.appointment_date || body.date;
+  const appointmentTimeRaw = body.appointment_time || body.time;
 
-    // Required field validation
-    if (!name || !phone || !service_provider || !date || !time) {
-      return res.status(400).json({
-        error: 'Missing required fields.',
-        required: ['name', 'phone', 'service_provider', 'date', 'time'],
-        received: { name, phone, service_provider, date, time },
-      });
-    }
+  console.log('📥 [Booking] Incoming POST /api/book', {
+    name: customerNameRaw,
+    phone: customerPhoneRaw,
+    service: serviceRaw,
+    date: appointmentDateRaw,
+    time: appointmentTimeRaw,
+    location: body.location,
+  });
 
-    // Auto-generate unique booking_id
-    const booking_id = "BOOK-" + Math.floor(Math.random() * 100000);
+  const name =
+    typeof customerNameRaw === 'string' ? customerNameRaw.trim() : '';
+  const service = typeof serviceRaw === 'string' ? serviceRaw.trim() : '';
+  const providerName =
+    typeof providerNameRaw === 'string' ? providerNameRaw.trim() : 'no preference';
+  const date = appointmentDateRaw;
+  const timeRaw = appointmentTimeRaw;
+  const location =
+    typeof body.location === 'string' ? body.location.trim() : '';
 
-    const query = `
+  if (!name || !service || !date || !timeRaw || !location) {
+    return res.status(400).json({
+      success: false,
+      error: 'Missing required fields.',
+      required: ['name', 'service', 'date', 'time', 'location'],
+      received: {
+        name: name || undefined,
+        service: service || undefined,
+        date: date || undefined,
+        time: timeRaw || undefined,
+        location: location || undefined,
+      },
+    });
+  }
+
+  const time = normalizeTime(timeRaw);
+  if (!time) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid time format.',
+    });
+  }
+
+  const customerPhoneRawSafe =
+    typeof customerPhoneRaw === 'string' && customerPhoneRaw.trim()
+      ? customerPhoneRaw.trim()
+      : null;
+  const customerPhone = customerPhoneRawSafe
+    ? normalizeInternationalPhone(customerPhoneRawSafe)
+    : null;
+  if (customerPhoneRawSafe && !customerPhone) {
+    console.warn(
+      `⚠️ [Booking] Invalid phone format, skipping WhatsApp: ${customerPhoneRawSafe}`
+    );
+  }
+  const email =
+    typeof body.email === 'string' && body.email.trim()
+      ? body.email.trim()
+      : null;
+  const description =
+    typeof body.description === 'string' && body.description.trim()
+      ? body.description.trim()
+      : null;
+  const relationship =
+    typeof body.relationship === 'string' && body.relationship.trim()
+      ? body.relationship.trim()
+      : 'patient';
+
+  let booking_id = generateBookingId();
+
+  const query = `
       INSERT INTO bookings (
-        booking_id, name, phone, email, description,
+        booking_id, name, customer_phone, phone, email, description,
         service_provider, relationship, payment_status, date, time, location
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
       ) RETURNING *;
     `;
 
-    const values = [
-      booking_id,
-      name.trim(),
-      phone.trim(),
-      email?.trim() || null,
-      description?.trim() || null,
-      service_provider.trim().toLowerCase(),
-      relationship?.trim() || 'patient',
-      payment_status || 'pending',
-      date,
-      normalizeTime(time),   // ← converts any format to HH:MM:SS
-      location?.trim() || null,
-    ];
+  const values = [
+    booking_id,
+    name,
+    customerPhone,
+    customerPhone,
+    email,
+    description,
+    providerName.toLowerCase(),
+    relationship,
+    body.payment_status || 'pending',
+    date,
+    time,
+    location,
+  ];
 
+  try {
     const result = await pool.query(query, values);
     const saved = result.rows[0];
 
-    console.log(`✅ [DB] Booking ${saved.booking_id} saved successfully. Triggering notifications...`);
-    
-    // ── WhatsApp Confirmation Logic ──────────────────────────────────
-    const whatsappMsg = `Hi ${saved.name} 👋, your booking for ${saved.service_provider} is confirmed ✅`;
-    sendWhatsAppMessage(saved.phone, whatsappMsg).catch(err => console.error("❌ [WhatsApp Trigger Error]", err));
+    console.log(
+      `✅ [Booking] DB insert OK — booking_id=${saved.booking_id} id=${saved.id}`
+    );
 
-    // Return in a unified shape for the frontend
-    res.status(201).json({
-      message:   'Booking successfully created',
+    const booking = {
+      booking_id: saved.booking_id,
+      customer_name: saved.name,
+      customer_phone: saved.customer_phone || saved.phone,
+      service_type: service,
+      provider_name: saved.service_provider || providerName,
+      appointment_date: saved.date,
+      appointment_time: saved.time,
+      location: saved.location,
+    };
+    console.log('[Booking] ✅ Saved to DB. Booking ID:', saved.booking_id);
+    console.log('[Booking] Triggering WhatsApp for:', booking.customer_phone);
+
+    if (!customerPhone) {
+      console.log('⚠️ [Booking] Phone missing/invalid, skipping WhatsApp.');
+    } else {
+      try {
+        await sendWhatsAppMessage(booking);
+      } catch (err) {
+        console.error('❌ WhatsApp failed', err.message || err);
+      }
+    }
+
+    return res.status(201).json({
+      success: true,
+      booking_id: saved.booking_id,
       bookingId: saved.booking_id,
-      booking:   saved,
+      message: 'Booking successfully created',
+      booking: saved,
     });
-
   } catch (err) {
-    console.error('FULL ERROR:', err); // 👈 shows exact Postgres error in terminal
-    res.status(500).json({ error: 'Server error while creating booking.' });
+    console.error('❌ [Booking] DB error:', err.message || err);
+    return res.status(503).json({
+      success: false,
+      error: 'Database error while creating booking. Check PostgreSQL and run npm run setup:db.',
+    });
   }
 };
 
-// ── @route  GET /api/bookings ────────────────────────────────────────
-// ── @desc   Retrieve ALL filtered bookings (admin/debug) ─────────────
 const getAllBookings = async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM bookings ORDER BY created_at DESC;');
+    const result = await pool.query(
+      'SELECT * FROM bookings ORDER BY created_at DESC;'
+    );
     res.status(200).json({ count: result.rowCount, bookings: result.rows });
   } catch (err) {
     console.error('Error fetching all bookings:', err.message);
@@ -120,8 +194,6 @@ const getAllBookings = async (req, res) => {
   }
 };
 
-// ── @route  GET /api/bookings/:booking_id ─────────────────────────────────
-// ── @desc   Retrieve a specific booking by ID ────────────────────────
 const getBookingById = async (req, res) => {
   try {
     const { booking_id } = req.params;
@@ -135,7 +207,7 @@ const getBookingById = async (req, res) => {
     }
 
     res.status(200).json({
-      count:    result.rowCount,
+      count: result.rowCount,
       booking: result.rows[0],
     });
   } catch (err) {
@@ -144,8 +216,6 @@ const getBookingById = async (req, res) => {
   }
 };
 
-// ── @route  PATCH /api/reschedule/:booking_id ──────────────────────────
-// ── @desc   Update date/time of an existing booking ──────────────────
 const rescheduleBooking = async (req, res) => {
   try {
     const { booking_id } = req.params;
@@ -161,7 +231,11 @@ const rescheduleBooking = async (req, res) => {
       WHERE booking_id = $3 
       RETURNING *;
     `;
-    const result = await pool.query(query, [date, normalizeTime(time), booking_id]);
+    const result = await pool.query(query, [
+      date,
+      normalizeTime(time),
+      booking_id,
+    ]);
 
     if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Booking not found.' });
@@ -177,8 +251,6 @@ const rescheduleBooking = async (req, res) => {
   }
 };
 
-// ── @route  DELETE /api/cancel/:booking_id ───────────────────────────
-// ── @desc   Cancel (delete) an existing booking ──────────────────────
 const cancelBooking = async (req, res) => {
   try {
     const { booking_id } = req.params;
@@ -193,7 +265,7 @@ const cancelBooking = async (req, res) => {
 
     res.status(200).json({
       message: 'Booking successfully cancelled.',
-      bookingId: booking_id
+      bookingId: booking_id,
     });
   } catch (err) {
     console.error('Cancel error:', err.message);
@@ -201,10 +273,10 @@ const cancelBooking = async (req, res) => {
   }
 };
 
-module.exports = { 
-  createBooking, 
-  getAllBookings, 
+module.exports = {
+  createBooking,
+  getAllBookings,
   getBookingById,
-  rescheduleBooking, 
-  cancelBooking 
+  rescheduleBooking,
+  cancelBooking,
 };

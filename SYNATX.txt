@@ -3,3 +3,29 @@ npm run dev
 
 cd "n:\tectra tech works\Mothrly Chat\backend"
 python main.py
+
+
+
+after 
+
+Use this exact order from your project root:
+
+cd "C:\Users\nithi\Desktop\TECTRA\Mothrly-Chat"
+1) Start Node backend (bookings + PostgreSQL + WhatsApp)
+cd "C:\Users\nithi\Desktop\TECTRA\Mothrly-Chat\node-backend"
+npm install
+npm run setup:db
+npm run dev
+Runs on: http://localhost:5000
+
+2) Start FastAPI backend (chat + serves frontend UI)
+Open a new terminal:
+
+cd "C:\Users\nithi\Desktop\TECTRA\Mothrly-Chat\backend"
+python -m pip install -r requirements.txt
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+Runs on: http://localhost:8000
+
+3) Open app
+Frontend/UI: http://localhost:8000
+Node health: http://localhost:5000/api/health

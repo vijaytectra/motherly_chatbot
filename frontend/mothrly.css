@@ -38,26 +38,45 @@
     --online: #10B981;
     --success: #059669;
     --user-bubble: #FAEAEA;
-    --bot-bubble: #FFFFFF;
+    --bot-bubble: #FFFFFF; 
 
-    /* Typography */
-    --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    /* Typography Tokens */
+    --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --fs-xs: 11px;
+    --fs-sm: 12px;
+    --fs-base: 13px;
+    --fs-md: 14px;
+    --fs-lg: 15px;
+    /* Booking card — fluid text (scales with viewport on mobile) */
+    --bk-label-fs: 7.5px;
+    --bk-input-fs: 10px;
+    --bk-btn-fs:   11px;
+    --bk-hint-fs:  7px;
+    --lh-base: 1.4;
+    --lh-tight: 1.2;
+    --fw-normal: 400;
+    --fw-medium: 500;
+    --fw-semibold: 600;
+    --fw-bold: 700;
 
     /* Radius */
     --r-xl: 0px;
-    --r-bubble: 16px;
-    --r-chip: 20px;
+    --r-bubble: 12px;
+    --r-chip: 18px;
+    --r-card: 14px;
 
     /* Shadows */
-    --shadow-card: 0 10px 40px rgba(0, 0, 0, 0.08);
-    --shadow-bubble: 0 1px 4px rgba(0, 0, 0, 0.05);
-    --shadow-chip: 0 1px 3px rgba(0, 0, 0, 0.05);
+    --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.06);
+    --shadow-bubble: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 html,
 body {
     height: 100%;
     font-family: var(--font);
+    font-size: var(--fs-base);
+    line-height: var(--lh-base);
+    font-weight: var(--fw-normal);
     background: #E5E7EB;
     color: var(--text-primary);
     -webkit-font-smoothing: antialiased;
@@ -166,14 +185,14 @@ body {
 }
 
 .chat-tooltip-title {
-    font-size: 14px;
+    font-size: var(--fs-md);
     font-weight: 600;
     margin: 0 0 4px 0;
     line-height: 1.3;
 }
 
 .chat-tooltip-cta {
-    font-size: 13px;
+    font-size: var(--fs-base);
     color: #d1d5db;
     margin: 0;
     line-height: 1.4;
@@ -442,19 +461,19 @@ body {
 }
 
 .chat-closed-welcome {
-    font-size: 14px;
-    font-weight: 600;
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
     color: var(--text-primary);
-    margin: 0 0 4px 0;
-    line-height: 1.3;
+    margin: 0 0 2px 0;
+    line-height: var(--lh-tight);
 }
 
 .chat-closed-cta {
-    font-size: 12px;
-    font-weight: 500;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
     color: var(--text-secondary);
     margin: 0;
-    line-height: 1.4;
+    line-height: var(--lh-base);
 }
 
 .chat-closed-fab {
@@ -524,15 +543,15 @@ body {
 
 .header-avatar {
     position: relative;
-    width: 34px;
-    height: 34px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     background: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
-    font-weight: 700;
+    font-size: var(--fs-base);
+    font-weight: var(--fw-bold);
     color: var(--primary);
     flex-shrink: 0;
 }
@@ -559,20 +578,20 @@ body {
 }
 
 .header-center h1 {
-    font-size: 14px;
-    font-weight: 600;
-    line-height: 1.2;
+    font-size: var(--fs-md);
+    font-weight: var(--fw-semibold);
+    line-height: var(--lh-tight);
     margin: 0;
 }
 
 .header-center .subtitle {
     display: block;
-    font-size: 9px;
-    font-weight: 500;
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
     opacity: 0.95;
-    margin-top: 0;
-    line-height: 1.1;
-    transition: all 0.3s;
+    margin-top: 1px;
+    line-height: var(--lh-tight);
+    transition: all 0.3x;
 }
 
 .header-actions {
@@ -621,7 +640,7 @@ body {
     padding: 6px 4px 6px 6px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 4px; /* Increased by 20% from 3px */
     align-items: center;
     background: var(--bg);
     scroll-behavior: smooth;
@@ -631,11 +650,13 @@ body {
 /* ── Message bubbles ──────────────────────────────────────────── */
 .message {
     display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap; /* Prevent stacking */
     align-items: flex-start;
     gap: 8px;
-    max-width: 95%;
-    width: 100%;
+    max-width: 90%; 
     align-self: stretch;
+    margin-bottom: 0; /* Rely on container gap */
     animation: fade-up 0.3s ease forwards;
 }
 
@@ -655,7 +676,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 12px;
+    font-size: var(--fs-sm);
     font-weight: 600;
     background: var(--text-primary);
     color: #fff;
@@ -669,28 +690,44 @@ body {
 
 .message-bubble {
     background: var(--bot-bubble);
-    border-radius: 12px;
-    padding: 8px 10px;
+    border-radius: 16px 16px 16px 2px; /* Bot tail: sharp bottom-left */
+    padding: 8px 14px; /* Tightened for vertical compactness */
     box-shadow: var(--shadow-bubble);
     position: relative;
-    border: 1px solid var(--border);
+    border: 1px solid #E5E7EB; /* Subtle Swiggy-style border */
 }
 
 .user-message .message-bubble {
     background: var(--user-bubble);
     border-color: var(--primary-light);
     color: #000000;
-    border-radius: 12px 12px 4px 12px;
-    padding: 8px 10px;
+    border-radius: 16px 16px 2px 16px; /* User tail: sharp bottom-right */
+    padding: 10px 16px; /* Unified padding */
     margin-right: 6px;
     box-shadow: 0 2px 8px rgba(197, 55, 113, 0.12);
+    display: block;
+    box-sizing: content-box; /* Revert to content-box to prevent min-content squishing bug */
+    width: max-content;
+    max-width: 75%;
 }
 
 .message-bubble p {
-    font-size: 13px;
+    font-size: var(--fs-base);
     line-height: 1.45;
     color: var(--text-primary);
     min-height: 1.4em;
+    word-break: normal; /* Restored to normal to prevent aggressive min-content calculation bugs */
+    overflow-wrap: break-word; /* Modern, safe text wrapping for long text */
+    margin: 0;
+}
+
+.message-timestamp {
+    display: block;
+    text-align: right;
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 4px;
+    opacity: 0.8;
 }
 
 .user-message .message-bubble p {
@@ -703,7 +740,7 @@ body {
     max-width: 260px;
     margin-left: auto;
     margin-right: auto;
-    margin-top: 4px;
+    margin-top: 0;
     margin-bottom: 0;
     padding: 0;
     align-self: center;
@@ -801,66 +838,93 @@ body {
     flex-shrink: 0;
 }
 
+.option-btn-sub {
+    font-size: 9.5px;
+    font-weight: 400;
+    color: #6B7280;
+    text-align: center;
+    margin-top: 1px;
+    line-height: 1.2;
+    letter-spacing: 0.1px;
+    text-transform: capitalize;
+}
+
 /* Welcome menu layout: 4 large cards + 3 compact quick actions */
 .welcome-options-wrap {
-    width: calc(100% - 56px);
-    max-width: calc(100% - 56px);
+    width: calc(90% - 36px); /* Align perfectly with bot bubble width (starts at 36px, ends at 90%) */
     display: flex;
     flex-direction: column;
     gap: 8px;
-    align-self: center;
+    align-self: flex-start;
+    margin-left: 36px;
+    margin-right: auto;
 }
 
 .welcome-options-main {
     width: 100%;
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
+    grid-auto-rows: 1fr;
+    gap: 6px;
 }
 
 .option-btn--welcome-primary {
-    min-height: 71px;
-    border-radius: 14px;
-    font-size: 11.5px;
-    font-weight: 600;
-    padding: 7px 9px;
-    line-height: 1.2;
-    gap: 5px;
+    min-height: 44px; /* Reduced from 52px */
+    height: 100%;
+    border-radius: var(--r-card);
+    font-size: 10px; /* Slimmer font */
+    font-weight: var(--fw-semibold);
+    padding: 4px 6px; /* Tightened padding */
+    line-height: var(--lh-tight);
+    gap: 2px;
     flex-direction: column;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
 }
 
 .option-btn--welcome-primary .btn-icon {
-    font-size: 13px;
+    font-size: 11px; /* Slightly smaller icon */
 }
 
 .welcome-options-secondary {
     width: 100%;
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-auto-rows: 1fr;
     gap: 8px;
     justify-content: center;
 }
 
 .option-btn--welcome-secondary {
-    min-height: 56px; /* Scaled down 20% from 71px */
-    border-radius: 14px; /* Matches primary cards */
-    font-size: 9.5px;
-    font-weight: 600;
-    padding: 6px 8px;
-    flex: 0 1 auto;
-    flex-direction: column; /* Stack vertically like primary cards */
+    min-height: 52px;
+    height: 100%;
+    border-radius: var(--r-card);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    padding: 4px 8px;
+    flex-direction: column;
     gap: 4px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
     border: 1.5px solid var(--primary-light);
 }
 
 /* Review change options: make labels cleaner and evenly wrapped */
 .option-btn--review-change {
-    min-height: 56px;
-    padding: 10px 12px;
+    min-height: 48px;
+    height: 100%;
+    padding: 8px 12px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
     text-align: center;
     white-space: normal;
     line-height: 1.25;
-    font-size: 13px;
+    font-size: var(--fs-base);
     font-weight: 600;
 }
 
@@ -887,45 +951,45 @@ body {
 
 .quick-actions-bar .option-btn--welcome-secondary {
     flex: 0 0 auto;
-    white-space: nowrap; /* Keeps items on a single line so they horizontally widen normally */
+    white-space: nowrap;
     scroll-snap-align: start;
-    min-width: unset; /* Auto-widen based on text width */
-    min-height: 38px; /* Decreased height */
-    padding: 6px 14px;
-    border-radius: 14px;
-    font-size: 11px;
-    font-weight: 600;
-    line-height: 1.15;
-    flex-direction: row; /* Icon before text horizontally */
+    min-width: unset;
+    min-height: 32px;
+    padding: 4px 12px;
+    border-radius: var(--r-chip);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+    line-height: var(--lh-tight);
+    flex-direction: row;
     justify-content: center;
     gap: 6px;
-    border: 1.5px solid var(--primary-light);
+    border: 1px solid var(--primary-light);
 }
 
 .quick-actions-bar .option-btn--welcome-secondary .btn-icon {
     font-size: 10px;
 }
 
-/* Full-width blocks in messages (when messages area is centered) */
 .chat-messages .booking-card,
 .chat-messages .confirmation-card {
-    align-self: stretch;
+    align-self: flex-start; /* Aligns parallel to bot bubbles */
 }
 
 /* ── Booking step cards: full width (Schedule, Contact, etc.) ──── */
 .booking-card {
-    width: 100%;
+    width: 260px; /* Enforce uniform width across all cards */
+    max-width: calc(100% - 10px);
     box-sizing: border-box;
-    margin-left: 0;
-    margin-right: 0;
+    /* margin-left: 36px handled by bot-message wrapper */
+    margin-right: 12px;
     background: #FFFFFF;
     border: 1.5px solid var(--border);
-    border-radius: 14px;
-    padding: 10px 12px;
+    border-radius: var(--r-card);
+    padding: 6px 10px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+    gap: 2px;
+    box-shadow: var(--shadow-bubble);
     animation: fade-up 0.35s ease forwards;
 }
 
@@ -933,6 +997,7 @@ body {
 .nanny-age-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
+    grid-auto-rows: 1fr; /* All cards in all rows will be equal height */
     gap: 8px;
     margin: 6px 0;
     width: 100%;
@@ -942,7 +1007,7 @@ body {
     background: #FFFFFF;
     border: 1.5px solid var(--border);
     border-radius: 12px;
-    padding: 10px 4px;
+    padding: 8px 4px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -951,8 +1016,9 @@ body {
     cursor: pointer;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     min-height: 64px;
+    height: 100%; /* Stretch to fill grid row */
     box-sizing: border-box;
-    gap: 2px;
+    gap: 4px;
 }
 
 .nanny-age-card:hover {
@@ -982,13 +1048,14 @@ body {
 }
 
 .booking-card-title {
-    font-size: 10.5px;
+    font-size: var(--fs-xs);
     font-weight: 600;
     color: var(--primary);
     display: flex;
     align-items: center;
     gap: 5px;
-    margin-bottom: 2px;
+    margin-bottom: 0;
+    font-size: 10px;
 }
 
 .booking-card-title svg {
@@ -998,7 +1065,7 @@ body {
 }
 
 .booking-label {
-    font-size: 9px;
+    font-size: var(--bk-label-fs);
     font-weight: 600;
     color: var(--text-secondary);
     text-transform: uppercase;
@@ -1013,18 +1080,40 @@ body {
 
 .booking-input {
     width: 100%;
+    height: 28px;
     box-sizing: border-box;
-    border: 1.5px solid var(--border);
-    border-radius: 10px;
-    padding: 9px 12px;
-    font-size: 13px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0 10px;
+    font-size: var(--bk-input-fs);
     font-family: var(--font);
     color: var(--text-primary);
-    background: var(--bg);
+    background: #fff;
     outline: none;
-    transition: border-color 0.2s;
+    transition: all 0.2s;
+}
+
+/* Browser Autofill Styling - Standard Blue */
+.booking-input:-webkit-autofill,
+.booking-input:-webkit-autofill:hover,
+.booking-input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0px 1000px #E8F0FE inset !important;
+    -webkit-text-fill-color: var(--text-primary) !important;
+}
+
+select.booking-input {
+    padding-right: 30px; /* Space for the custom arrow */
+    cursor: pointer;
     appearance: none;
     -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+}
+
+.booking-input::placeholder {
+    font-size: var(--bk-input-fs);
+    color: var(--text-muted);
 }
 
 .booking-input:focus {
@@ -1284,11 +1373,9 @@ body {
     align-items: center;
     justify-content: center;
     background: rgba(0, 0, 0, 0.32);
-    padding: 4px;
+    padding: 8px;
     box-sizing: border-box;
     max-height: 100%;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.2s ease, visibility 0.2s ease;
@@ -1303,20 +1390,18 @@ body {
 .time-picker-card {
     display: flex;
     flex-direction: column;
-    width: min(216px, calc(100% - 8px));
-    max-width: calc(100% - 8px);
-    aspect-ratio: 1;
-    height: auto;
-    max-height: min(216px, calc(100% - 8px));
+    width: 100%;
+    max-width: 220px;
+    height: 260px; /* Reduced to ~60% of original perceived height to satisfy 40% reduction */
     background: #ffffff;
-    border-radius: 9px;
-    padding: 3px 5px 4px;
+    border-radius: 10px;
+    padding: 10px;
     color: #1f2937;
-    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
     border: 1px solid #ebe0e0;
     overflow: hidden;
     box-sizing: border-box;
-    transform: scale(0.96);
+    transform: scale(0.95);
     transition: transform 0.2s ease;
 }
 
@@ -1328,17 +1413,14 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 4px;
+    gap: 6px;
     flex: 0 0 auto;
     padding: 2px 4px;
-    margin-bottom: 2px;
+    margin-bottom: 8px;
     font-size: 11px;
     font-weight: 600;
-    line-height: 1.15;
-    color: var(--primary-dark);
-    background: #fff3f3;
-    border: 1px solid #f7d9d9;
-    border-radius: 6px;
+    line-height: var(--lh-tight);
+    color: #1f2937;
 }
 
 .time-picker-title svg {
@@ -1346,6 +1428,29 @@ body {
     width: 12px;
     height: 12px;
     color: var(--primary);
+}
+
+.time-picker-grouped-container::-webkit-scrollbar {
+    width: 4px;
+}
+
+.time-picker-grouped-container::-webkit-scrollbar-track {
+    background: #f9fafb;
+    border-radius: 10px;
+}
+
+.time-picker-grouped-container::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 10px;
+}
+
+.time-picker-grouped-container::-webkit-scrollbar-thumb:hover {
+    background: var(--primary-light);
+}
+
+.time-picker-grouped-container {
+    scrollbar-width: thin;
+    scrollbar-color: #d1d5db #f9fafb;
 }
 
 .time-picker-slots {
@@ -1363,17 +1468,20 @@ body {
 
 .time-picker-slot {
     font-family: var(--font);
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 500;
     color: #374151;
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
-    border-radius: 5px;
+    background: #ffffff;
+    border: 1px solid #D1D5DB;
+    border-radius: 6px;
     padding: 4px 2px;
-    min-height: 0;
+    min-height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
-    line-height: 1.15;
-    transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+    transition: all 0.2s ease;
+    user-select: none;
     -webkit-tap-highlight-color: transparent;
 }
 
@@ -1407,7 +1515,7 @@ body {
 .time-picker-actions {
     display: flex;
     gap: 4px;
-    margin-top: 3px;
+    margin-top: 8px;
     flex: 0 0 auto;
     align-items: stretch;
     padding: 0;
@@ -1417,14 +1525,13 @@ body {
 .time-picker-btn {
     flex: 1;
     font-family: var(--font);
-    font-size: 10.5px;
+    font-size: 11px;
     font-weight: 600;
-    padding: 4px 6px;
-    min-height: 26px;
-    max-height: 28px;
+    padding: 6px 10px;
+    min-height: 32px;
     border-radius: 6px;
     cursor: pointer;
-    line-height: 1.15;
+    line-height: var(--lh-tight);
     transition: background 0.2s, transform 0.05s;
 }
 
@@ -1447,6 +1554,210 @@ body {
 .time-picker-btn--ok:hover {
     background: var(--primary-dark);
 }
+
+/* Unified Schedule Picker (Date Strip + Time Slots) */
+.unified-picker-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.4);
+    padding: 12px;
+    box-sizing: border-box;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.unified-picker-overlay--visible {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+.unified-picker-card {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 280px; /* Matched exactly to .booking-card */
+    max-height: 340px; /* Slightly increased to prevent squishing on iOS */
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 10px;
+    color: #1f2937;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    box-sizing: border-box;
+    transform: scale(0.95);
+    transition: transform 0.2s ease;
+    overflow: hidden;
+}
+
+.unified-picker-overlay--visible .unified-picker-card {
+    transform: scale(1);
+}
+
+.unified-picker-header {
+    flex-shrink: 0;
+    margin-bottom: 6px;
+    text-align: center;
+}
+
+.unified-picker-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #111827;
+}
+
+/* Date Strip Scroller */
+.date-strip-label {
+    flex-shrink: 0;
+    font-size: 9px;
+    font-weight: 700;
+    color: #9CA3AF;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+    display: block;
+}
+
+.date-strip-scroller {
+    flex-shrink: 0;
+    display: flex;
+    gap: 5px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    margin-bottom: 8px;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none;  /* IE/Edge */
+    scroll-snap-type: x mandatory;
+}
+
+.date-strip-scroller::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+}
+
+.date-chip {
+    flex: 0 0 36px;
+    height: 44px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #F9FAFB;
+    border: 1px solid #E5E7EB;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    scroll-snap-align: start;
+    user-select: none;
+}
+
+.date-chip-day {
+    font-size: 8px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #6B7280;
+    margin-bottom: 2px;
+}
+
+.date-chip-num {
+    font-size: 11px;
+    font-weight: 700;
+    color: #111827;
+}
+
+.date-chip-month {
+    font-size: 8px;
+    font-weight: 500;
+    color: #9CA3AF;
+}
+
+.date-chip:hover {
+    border-color: var(--primary-light);
+    background: #FFF5F7;
+}
+
+.date-chip.is-active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #ffffff;
+}
+
+.date-chip.is-active .date-chip-day,
+.date-chip.is-active .date-chip-num,
+.date-chip.is-active .date-chip-month {
+    color: #ffffff;
+}
+
+.unified-time-section {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 4px;
+    margin-top: 4px;
+}
+
+/* Custom Scrollbar for Time Section */
+.unified-time-section::-webkit-scrollbar {
+    width: 4px;
+}
+.unified-time-section::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+.unified-time-section::-webkit-scrollbar-thumb {
+    background: #ccc;
+    border-radius: 4px;
+}
+
+.unified-picker-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #F3F4F6;
+}
+
+.time-picker-btn {
+    flex: 1;
+    padding: 6px 0;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+}
+
+.time-picker-btn--cancel {
+    background: #ffffff;
+    border: 1px solid #E5E7EB;
+    color: #4B5563;
+}
+
+.time-picker-btn--ok {
+    background: #9B1A52;
+    color: #ffffff;
+}
+
+.time-picker-group-title {
+    font-size: 9px !important;
+    margin-bottom: 6px !important;
+}
+
+.time-picker-slots {
+    gap: 5px !important;
+    margin-bottom: 8px;
+}
+
+.time-picker-slot {
+    padding: 4px 0 !important;
+    border-radius: 8px !important;
+    font-size: 9px !important;
+}
+
 
 /* (removed) Flatpickr theming – replaced by Material picker */
 
@@ -1508,18 +1819,18 @@ body {
 .detect-btn {
     white-space: nowrap;
     flex-shrink: 0;
+    height: 28px; /* Matches input height for equal context */
     background: var(--primary-light);
     color: var(--primary);
-    border: 1.5px solid var(--primary-light);
-    border-radius: 10px;
-    padding: 9px 12px;
-    font-size: 12px;
-    font-weight: 600;
-    font-family: var(--font);
-    cursor: pointer;
+    border: 1px solid var(--primary-light);
+    border-radius: 8px;
+    padding: 0 12px;
+    font-size: 11px;
+    font-weight: var(--fw-semibold);
     display: flex;
     align-items: center;
     gap: 5px;
+    cursor: pointer;
     transition: all 0.2s;
 }
 
@@ -1534,13 +1845,13 @@ body {
     color: #fff;
     border: none;
     border-radius: 10px;
-    padding: 10px 12px;
-    font-size: 13px;
+    padding: 8px 12px;
+    font-size: var(--bk-btn-fs);
     font-weight: 600;
     font-family: var(--font);
     cursor: pointer;
     transition: all 0.2s;
-    margin-top: 2px;
+    margin-top: 0;
     box-shadow: 0 2px 8px rgba(197, 55, 113, 0.25);
 }
 
@@ -1569,9 +1880,9 @@ body {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 13.5px;
+    font-size: var(--fs-base);
     color: var(--text-primary);
-    font-weight: 500;
+    font-weight: var(--fw-medium);
     cursor: pointer;
     user-select: none;
 }
@@ -1579,9 +1890,9 @@ body {
 .self-check-label input[type="checkbox"] {
     -webkit-appearance: none;
     appearance: none;
-    width: 18px;
-    height: 18px;
-    border: 2px solid var(--border);
+    width: 14px; /* Reduced to 14px */
+    height: 14px;
+    border: 1.5px solid var(--border);
     border-radius: 4px;
     background: #fff;
     cursor: pointer;
@@ -1599,12 +1910,12 @@ body {
 .self-check-label input[type="checkbox"]:checked::after {
     content: "";
     position: absolute;
-    left: 5px;
-    top: 1px;
-    width: 5px;
-    height: 10px;
+    left: 4px; /* Adjusted for 14px box */
+    top: 0.5px;
+    width: 3px;
+    height: 7px;
     border: solid white;
-    border-width: 0 2.5px 2.5px 0;
+    border-width: 0 2px 2px 0;
     transform: rotate(45deg);
 }
 
@@ -1613,11 +1924,67 @@ body {
     box-shadow: 0 0 0 3px var(--primary-light);
 }
 
+/* Relation chips */
+.slot-input-wrap {
+    position: relative;
+    width: 100%;
+    margin-bottom: 2px;
+}
+
+.booking-input--picker {
+    padding-left: 36px !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23C53771' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='2' ry='2'%3E%3C/rect%3E%3Cline x1='16' y1='2' x2='16' y2='6'%3E%3C/line%3E%3Cline x1='8' y1='2' x2='8' y2='6'%3E%3C/line%3E%3Cline x1='3' y1='10' x2='21' y2='10'%3E%3C/line%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: 12px center;
+    cursor: pointer;
+}
+
+.relation-chips-container {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+    margin-top: 4px;
+    flex-wrap: wrap;
+}
+
+.relation-chip {
+    flex: 1;
+    min-width: 80px;
+    padding: 8px 12px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.relation-chip:hover:not(.is-active) {
+    border-color: var(--primary-light);
+    background: #FAF5F5;
+    color: var(--primary);
+}
+
+.relation-chip.is-active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(155, 26, 82, 0.2);
+}
+
 .email-hint,
 .booking-hint {
-    font-size: 11px;
+    font-size: 7.5px !important;
     color: var(--text-muted);
-    margin-top: -6px;
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1.2;
+    opacity: 0.8;
 }
 
 .card-error {
@@ -1668,11 +2035,11 @@ body {
 }
 
 .confirm-title {
-    font-size: 11.5px;
-    font-weight: 700;
+    font-size: var(--fs-md);
+    font-weight: var(--fw-bold);
     color: var(--text-primary);
-    letter-spacing: -0.02em;
-    line-height: 1.25;
+    letter-spacing: -0.01em;
+    line-height: var(--lh-tight);
 }
 
 .confirm-id {
@@ -1700,8 +2067,8 @@ body {
 .confirm-row {
     display: flex;
     flex-direction: column;
-    gap: 1px;
-    padding: 4px 0;
+    gap: 0;
+    padding: 3px 0;
     border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
@@ -1721,18 +2088,18 @@ body {
 }
 
 .confirm-key {
-    font-size: 8.5px;
-    font-weight: 600;
+    font-size: 9.5px;
+    font-weight: 700;
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
 
 .confirm-val {
-    font-size: 10.5px;
-    font-weight: 500;
+    font-size: var(--fs-sm);
+    font-weight: 600;
     color: var(--text-primary);
-    line-height: 1.4;
+    line-height: var(--lh-tight);
     letter-spacing: -0.01em;
 }
 
@@ -1853,14 +2220,15 @@ body {
     min-width: 0;
     border: none;
     background: transparent;
-    font-size: 13px;
+    font-size: var(--fs-sm);
     font-family: var(--font);
     color: var(--text-primary);
     outline: none;
-    padding: 5px 0;
+    padding: 2px 0;
 }
 
 .chat-input::placeholder {
+    font-size: var(--fs-sm);
     color: var(--text-muted);
 }
 
@@ -1893,9 +2261,12 @@ body {
     color: var(--primary);
 }
 
-.send-button:hover:not(:disabled) {
-    background: var(--primary-light);
-    color: var(--primary-dark);
+.session-reload-btn:hover {
+    color: #3b82f6 !important;
+}
+
+.hard-reset-btn:hover {
+    color: #ef4444 !important;
 }
 
 /* ── Mic button recording state ───────────────────────────────── */
@@ -1993,22 +2364,29 @@ body {
     }
 }
 
-/* ── iOS typing zoom fix (chat inputs) ───────────────────────────── */
+/* Location field should be kept small as requested by user */
 @media (max-width: 768px) {
-    .chat-wrapper.chat-panel input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-    .chat-wrapper.chat-panel textarea,
-    .chat-wrapper.chat-panel select,
-    .chat-wrapper.chat-panel .chat-input,
-    .chat-wrapper.chat-panel .booking-input {
-        font-size: 16px !important;
+    .chat-wrapper.chat-panel .booking-input--location {
+        font-size: clamp(10px, 3.5vw, 13px) !important;
     }
 }
 
-/* iOS Safari text autosizing guard */
+/* iOS Safari text autosizing guard and typing zoom fix */
 @supports (-webkit-touch-callout: none) {
     html,
     body {
         -webkit-text-size-adjust: 100%;
+    }
+
+    @media (max-width: 768px) {
+        /* Editable inputs must stay at 16px — prevents iOS auto-zoom on focus */
+        .chat-wrapper.chat-panel input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(.booking-input--picker):not(.booking-input--location),
+        .chat-wrapper.chat-panel textarea,
+        .chat-wrapper.chat-panel select,
+        .chat-wrapper.chat-panel .chat-input,
+        .chat-wrapper.chat-panel .booking-input:not(.booking-input--picker):not(.booking-input--location) {
+            font-size: 16px !important;
+        }
     }
 }
 /* ── Secure Context Warning & Permissions ───────────────────────── */

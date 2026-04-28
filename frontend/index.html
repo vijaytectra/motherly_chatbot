@@ -15,7 +15,7 @@
     <!-- Material Design Native Support -->
     <meta name="color-scheme" content="light dark" />
 
-    <link rel="stylesheet" href="/static/mothrly.css?v=38" />
+    <link rel="stylesheet" href="/static/mothrly.css?v=70" />
 </head>
 
 <body>
@@ -109,16 +109,19 @@
 
             <footer class="chat-input-bar">
                 <div class="input-wrapper">
+                    <!-- Chat Input -->
+                    
                     <input type="text" id="user-input" class="chat-input" placeholder="Start chatting..." autocomplete="off" />
+                    
                     <button class="icon-button mic-button" aria-label="Voice input" title="Voice input">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
                             <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
                             <line x1="12" y1="19" x2="12" y2="22"></line>
                         </svg>
                     </button>
                     <button id="send-btn" class="icon-button send-button" aria-label="Send message">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <line x1="22" y1="2" x2="11" y2="13"></line>
                             <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
                         </svg>
@@ -133,7 +136,7 @@
         // Runtime API config for LAN/mobile testing; override by setting window.__MOTHRLY_CONFIG__ before script.js
         window.__MOTHRLY_CONFIG__ = Object.assign({}, window.__MOTHRLY_CONFIG__ || {});
     </script>
-    <script src="/static/script.js?v=67"></script>
+    <script src="/static/script.js?v=70"></script>
     <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAbIthMT7kDGTo0TmoCOakUBWmUX3rhXXI&libraries=places&callback=onGoogleMapsReady" async defer></script>
 </body>
 

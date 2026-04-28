@@ -1,0 +1,38 @@
+# Implementation Plan — Complete Project Isolation & Knowledge Removal
+
+The goal is to permanently remove all trace of the **Hospital Chatbot** (MediBot) project from the system's memory and knowledge base, keeping only **Mothrly Chat** related data.
+
+## User Review Required
+
+> [!WARNING]
+> - **Log Deletion**: Since no distilled Knowledge Items (KIs) were found in the global registry, I have identified the **Conversation Logs** and **Artifacts** as the primary source of project-specific knowledge.
+> - **Irreversible**: Deleting these directories will permanently remove the conversation history for the Hospital project.
+> - **Targets**: I have identified 5 conversations specifically related to "Hospital Chatbot" and "MediBot Pro".
+
+## Proposed Changes
+
+### [System Brain Data](file:///C:/Users/niran/.gemini/antigravity/brain/)
+
+I will delete the following conversation folders and their associated logs:
+
+1.  **fbcbfc88-fe32-42be-bfc5-c4ad33c25a22** (Isolating Hospital Chatbot Memory)
+2.  **6a2653b4-8e21-4f6e-936e-9c56b0f7ff38** (MediBot Pro Database Persistence)
+3.  **80698760-6352-470e-8977-6ca1800bf5a0** (Refining MediBot Session Controls)
+4.  **e47b7b39-b4b4-4014-b27d-8d3d0cb5a29f** (Implementing Hospital RAG Chatbot)
+5.  **1bc2e026-d778-4978-b545-0434b09f73cb** (Medical Triage Guidance)
+
+### [System Conversations](file:///C:/Users/niran/.gemini/antigravity/conversations/)
+
+I will delete the corresponding `.pb` files for the IDs listed above.
+
+## Verification Plan
+
+### Automated Cleanup
+- I will verify that the `knowledge/` directory remains empty.
+- I will confirm that the specified `brain/` folders have been successfully deleted.
+- I will run a recursive search in the `Mothrly Chat` workspace to ensure no "MediBot" or "Hospital" filenames or content remain.
+
+## Open Questions
+
+- **Mothrly Chat UI Designer**: Conversation `2e84ebc8` is titled "Designing Mothrly UI UX" but mentions MediBot in its summary. Should this also be removed, or is it considered part of the Mothrly Chat project?
+- **Is this what you mean?**: Since there are no "distilled Knowledge Items" (KIs) in the `knowledge/` folder, is deleting the **Project Logs** the correct action to fulfill your request to "Remove all knowledge base entries"?

@@ -1,0 +1,5 @@
+- [ ] Create `.brain` directory in `n:\tectra tech works\Mothrly Chat`
+- [ ] Create `.brain` directory in `n:\tectra tech works\Hospital Chatbot`
+- [ ] Migrate active Mothrly conversation data (5980aafb...) to project `.brain`
+- [ ] Verify project isolation
+- [x] Clear system global research (already purged)

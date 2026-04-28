@@ -42,21 +42,21 @@ const LAN_FASTAPI_URL = "http://192.168.68.65:8000";
 function getBaseApiUrl(type) {
     const isNode = type === 'node';
     const runtime = runtimeApiConfig[isNode ? 'VITE_API_URL' : 'VITE_FASTAPI_URL'];
-    
+
     // If runtime config exists, use it
     if (runtime && runtime.trim().length > 0) {
         return normalizeBaseUrl(runtime);
     }
-    
+
     // Default discovery logic
     const host = window.location.hostname;
     const port = isNode ? '5000' : '8000';
-    
+
     // If we are on localhost, use localhost
     if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') {
         return `http://localhost:${port}`;
     }
-    
+
     // Otherwise, use the current host (good for LAN/Development testing)
     return `http://${host}:${port}`;
 }
@@ -192,7 +192,7 @@ function getCurrentProgressStep() {
 function captureFormDraftsFromDom() {
     return {
         location: document.getElementById("loc-input")?.value || "",
-        dateDisplay: document.getElementById("date-input")?.value || "",
+        slotDisplay: document.getElementById("combined-slot-input")?.value || "",
         dateIso: document.getElementById("date-input")?.dataset?.iso || "",
         timeDisplay: document.getElementById("time-input")?.value || "",
         time24: document.getElementById("time-input")?.dataset?.value24 || "",
@@ -208,6 +208,7 @@ function captureFormDraftsFromDom() {
 function applyFormDraftsToDom(drafts) {
     if (!drafts || typeof drafts !== "object") return;
     const loc = document.getElementById("loc-input");
+    const slotEl = document.getElementById("combined-slot-input");
     const dateEl = document.getElementById("date-input");
     const timeEl = document.getElementById("time-input");
     const nameEl = document.getElementById("c-name");
@@ -217,8 +218,12 @@ function applyFormDraftsToDom(drafts) {
     const selfEl = document.getElementById("c-self");
 
     if (loc && drafts.location && !loc.value) loc.value = drafts.location;
+
+    if (slotEl && drafts.slotDisplay && !slotEl.value) {
+        slotEl.value = drafts.slotDisplay;
+    }
+
     if (dateEl) {
-        if (drafts.dateDisplay && !dateEl.value) dateEl.value = drafts.dateDisplay;
         if (drafts.dateIso && !dateEl.dataset.iso) dateEl.dataset.iso = drafts.dateIso;
     }
     if (timeEl) {
@@ -245,6 +250,11 @@ function reinitializeRestoredWidgets() {
     }
 }
 
+function cleanupPickerOverlays() {
+    const panelEl = document.getElementById("chat-panel");
+    if (panelEl) panelEl.querySelectorAll(".unified-picker-overlay").forEach(el => el.remove());
+}
+
 function saveSessionSnapshot() {
     if (!messagesContainer) return;
     const sid = ensureSessionId();
@@ -255,6 +265,8 @@ function saveSessionSnapshot() {
         savedAt: Date.now(),
         chatHistory,
         bookingState,
+        bookingPayload,
+        latestBooking,
         detectedLocation,
         chatInitialized,
         progressStep: getCurrentProgressStep(),
@@ -275,8 +287,11 @@ function applySessionSnapshot(snapshot) {
     if (!snapshot || !messagesContainer) return false;
     chatHistory = Array.isArray(snapshot.chatHistory) ? snapshot.chatHistory : [];
     bookingState = snapshot.bookingState && typeof snapshot.bookingState === "object" ? snapshot.bookingState : {};
+    bookingPayload = snapshot.bookingPayload || null;
+    latestBooking = snapshot.latestBooking || null;
     detectedLocation = snapshot.detectedLocation || null;
     chatInitialized = Boolean(snapshot.chatInitialized || snapshot.messagesHtml);
+    cleanupPickerOverlays();
     messagesContainer.innerHTML = snapshot.messagesHtml || "";
     updateProgress(Number.isFinite(snapshot.progressStep) ? snapshot.progressStep : (bookingState.step || 0));
     const quickActionsBar = document.getElementById("quick-actions-bar");
@@ -303,12 +318,13 @@ function rebindInteractiveButtonsAfterRestore() {
         return clone;
     };
 
-    // Rebind welcome buttons (main + quick actions)
+    // Rebind welcome buttons (main + quick actions) — exclude review-change buttons
     document.querySelectorAll(
-        ".option-btn--welcome-primary, .option-btn--welcome-secondary"
+        ".option-btn--welcome-primary, .option-btn--welcome-secondary:not(.option-btn--review-change)"
     ).forEach((btn) => {
         const rebound = replaceButton(btn);
-        const label = normalizeLabel(rebound.textContent);
+        // Prefer data-label (set on primary buttons) to avoid capturing subtitle text
+        const label = rebound.dataset.label || normalizeLabel(rebound.textContent);
         rebound.addEventListener("click", () => handleServiceSelection(label));
     });
 
@@ -317,7 +333,7 @@ function rebindInteractiveButtonsAfterRestore() {
         const context = row.dataset.context;
         row.querySelectorAll("button.option-btn").forEach((btn) => {
             const rebound = replaceButton(btn);
-            const label = normalizeLabel(rebound.textContent);
+            const label = rebound.dataset.label || normalizeLabel(rebound.textContent);
             rebound.addEventListener("click", () => handleSubOptionSelection(context, label));
         });
     });
@@ -327,6 +343,53 @@ function rebindInteractiveButtonsAfterRestore() {
         const rebound = replaceButton(btn);
         const label = normalizeLabel(rebound.textContent);
         rebound.addEventListener("click", () => sendMessage(label));
+    });
+
+    // Rebind contact-card relation chips (Wife / Family / Other)
+    document.querySelectorAll(".relation-chip").forEach(chip => {
+        const rebound = replaceButton(chip);
+        rebound.addEventListener("pointerup", (e) => {
+            if (e) { e.preventDefault(); e.stopPropagation(); }
+            document.querySelectorAll(".relation-chip").forEach(c => c.classList.remove("is-active"));
+            rebound.classList.add("is-active");
+            const ri = document.getElementById("c-relation");
+            if (ri) ri.value = rebound.dataset.value;
+            clearCardError("contact-card");
+        });
+        rebound.addEventListener("click", (e) => e.preventDefault());
+    });
+
+    // Rebind nanny age selection cards
+    document.querySelectorAll(".nanny-age-card").forEach(card => {
+        const rebound = replaceButton(card);
+        rebound.addEventListener("click", () => {
+            document.querySelectorAll(".nanny-age-card")
+                .forEach(b => b.classList.remove("nanny-age-card--selected"));
+            rebound.classList.add("nanny-age-card--selected");
+            bookingState._pendingChildAge = rebound.dataset.value;
+            clearCardError("nanny-child-card");
+        });
+    });
+
+    // Rebind review-card "What would you like to change?" options
+    document.querySelectorAll(".option-btn--review-change").forEach(btn => {
+        const rebound = replaceButton(btn);
+        const value = rebound.dataset.changeValue;
+        rebound.addEventListener("click", () => {
+            document.getElementById("review-change-options")?.closest(".message")?.remove();
+            if (value === "schedule") {
+                bookingState.editingFromReviewTarget = "schedule";
+                renderScheduleCard();
+            } else if (value === "contact") {
+                bookingState.editingFromReviewTarget = "contact";
+                renderContactCard();
+            } else {
+                bookingState.editingFromReviewTarget = "description";
+                bookingState.awaitingDescription = true;
+                appendBotMessage(getDescriptionPromptForService(bookingState.service));
+                setInputEnabled(true);
+            }
+        });
     });
 }
 
@@ -418,17 +481,17 @@ function hideTooltip() {
 function initSessionFromContext() {
     try {
         const params = new URLSearchParams(window.location.search);
-        
+
         // 1. Phone extraction (URL -> runtimeConfig -> localStorage -> global objects)
-        const uPhone = params.get("uPhone") || 
-                       params.get("phone") || 
-                       params.get("USER_PHONE") ||
-                       runtimeApiConfig.USER_PHONE || 
-                       runtimeApiConfig.phone ||
-                       localStorage.getItem("mothrly_user_phone") ||
-                       localStorage.getItem("user_phone") ||
-                       window.USER_PHONE || 
-                       (window.AppConfig && window.AppConfig.phone);
+        const uPhone = params.get("uPhone") ||
+            params.get("phone") ||
+            params.get("USER_PHONE") ||
+            runtimeApiConfig.USER_PHONE ||
+            runtimeApiConfig.phone ||
+            localStorage.getItem("mothrly_user_phone") ||
+            localStorage.getItem("user_phone") ||
+            window.USER_PHONE ||
+            (window.AppConfig && window.AppConfig.phone);
 
         if (uPhone) {
             const normalized = normalizeBookingPhone(uPhone);
@@ -439,28 +502,28 @@ function initSessionFromContext() {
         }
 
         // 2. Name extraction
-        const uName = params.get("uName") || 
-                      params.get("name") || 
-                      runtimeApiConfig.USER_NAME || 
-                      runtimeApiConfig.name ||
-                      localStorage.getItem("mothrly_user_name") ||
-                      localStorage.getItem("user_name") ||
-                      window.USER_NAME ||
-                      (window.AppConfig && window.AppConfig.name);
+        const uName = params.get("uName") ||
+            params.get("name") ||
+            runtimeApiConfig.USER_NAME ||
+            runtimeApiConfig.name ||
+            localStorage.getItem("mothrly_user_name") ||
+            localStorage.getItem("user_name") ||
+            window.USER_NAME ||
+            (window.AppConfig && window.AppConfig.name);
         if (uName) {
             bookingState.name = uName;
             console.log("[Context] Initialized name:", uName);
         }
 
         // 3. Email extraction
-        const uEmail = params.get("uEmail") || 
-                       params.get("email") || 
-                       runtimeApiConfig.USER_EMAIL || 
-                       runtimeApiConfig.email ||
-                       localStorage.getItem("mothrly_user_email") ||
-                       localStorage.getItem("user_email") ||
-                       window.USER_EMAIL ||
-                       (window.AppConfig && window.AppConfig.email);
+        const uEmail = params.get("uEmail") ||
+            params.get("email") ||
+            runtimeApiConfig.USER_EMAIL ||
+            runtimeApiConfig.email ||
+            localStorage.getItem("mothrly_user_email") ||
+            localStorage.getItem("user_email") ||
+            window.USER_EMAIL ||
+            (window.AppConfig && window.AppConfig.email);
         if (uEmail) {
             bookingState.email = uEmail;
             console.log("[Context] Initialized email:", uEmail);
@@ -476,7 +539,7 @@ window.addEventListener("message", (event) => {
         const data = event.data;
         if (data && typeof data === "object") {
             console.log("[App] Incoming message context:", data);
-            
+
             const rawPhone = data.phone || data.uPhone || data.USER_PHONE;
             if (rawPhone) {
                 const normalized = normalizeBookingPhone(rawPhone);
@@ -484,7 +547,7 @@ window.addEventListener("message", (event) => {
             }
             if (data.name || data.uName || data.USER_NAME) bookingState.name = data.name || data.uName || data.USER_NAME;
             if (data.email || data.uEmail || data.USER_EMAIL) bookingState.email = data.email || data.uEmail || data.USER_EMAIL;
-            
+
             console.log("[App] Context updated via postMessage.");
         }
     } catch (e) {
@@ -517,7 +580,7 @@ function openChat() {
     // First time opening the chat: initialize and check context/permissions
     if (!chatInitialized) {
         chatInitialized = true;
-        
+
         // Clear container and send welcome message
         messagesContainer.innerHTML = "";
 
@@ -528,7 +591,7 @@ function openChat() {
         sendWelcomeMessage();
         initSessionFromContext();
         checkBackendHealth();
-        
+
         // Show permission request card after a short delay for better UX
         setTimeout(() => {
             renderPermissionRequestCard();
@@ -566,6 +629,9 @@ function openChat() {
 }
 
 function closeChatPanel() {
+    cleanupPickerOverlays();
+    // Stop any active voice recording so the mic is released when the panel closes
+    if (isRecording) stopVoiceInput();
     const panelEl = document.getElementById("chat-panel");
     const floatingChatEl = document.querySelector(".floating-chat");
     if (!panelEl || !floatingChatEl) return;
@@ -584,14 +650,20 @@ function prefetchLocation() {
         (pos) => {
             // Reverse geocode in background and store for later use
             const { latitude, longitude } = pos.coords;
-            fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&accept-language=en`)
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
+            fetch(
+                `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&accept-language=en`,
+                { signal: controller.signal }
+            )
                 .then(r => r.json())
                 .then(data => {
                     detectedLocation = data.display_name || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
                 })
                 .catch(() => {
                     detectedLocation = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-                });
+                })
+                .finally(() => clearTimeout(timeoutId));
         },
         () => { /* Permission denied or unavailable — user will enter manually */ },
         { timeout: 10000, enableHighAccuracy: false }
@@ -753,7 +825,7 @@ async function sendMessage(text) {
         const prompt = getDescriptionPromptForService(bookingState.service || "").trim();
         const cleanT = trimmed.toLowerCase().replace(/\s+/g, ' ');
         const cleanP = prompt.toLowerCase().replace(/\s+/g, ' ');
-        
+
         // Exact match check only (safer UX)
         if (cleanT === cleanP && cleanT.length > 20) {
             console.warn("[Chat] Exact prompt match detected. Suppressing.");
@@ -768,7 +840,7 @@ async function sendMessage(text) {
         // Await the append so the transition to "typing" or "review" is visually synced
         await appendMessage(trimmed, "user");
         userInput.value = "";
-        
+
         // Intercept for Reschedule Booking ID lookup
         if (bookingState.awaitingRescheduleId) {
             const bid = trimmed.toUpperCase().replace(/\s+/g, "");
@@ -786,162 +858,162 @@ async function sendMessage(text) {
 
         // Intercept the message if we are waiting for a booking description
         if (bookingState.awaitingDescription) {
-        const validation = validateBookingDescription(trimmed);
-        if (!validation.valid) {
-            setInputEnabled(true);
-            setTimeout(() => {
-                appendBotMessage(validation.message);
-                scrollToBottomIfNearBottom();
-                setTimeout(() => maybeFocusElement(userInput), 100);
-            }, 400);
-            return;
-        }
+            const validation = validateBookingDescription(trimmed);
+            if (!validation.valid) {
+                setInputEnabled(true);
+                setTimeout(() => {
+                    appendBotMessage(validation.message);
+                    scrollToBottomIfNearBottom();
+                    setTimeout(() => maybeFocusElement(userInput), 100);
+                }, 400);
+                return;
+            }
 
-        // Client-side checks passed — ask LLM to verify relevance and validity
-        setInputEnabled(false);
-        showTyping(true);
-        console.log("[Booking] Validating description via backend...");
-        
-        try {
-            const resp = await apiFetch(FASTAPI_API_BASE, "/validate-booking-description", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    description: trimmed,
-                    service: bookingState.service || "",
-                }),
-                timeout: 8000, // 8s specifically for validation
-            });
-            
-            const data = await resp.json().catch(() => ({}));
-            showTyping(false);
+            // Client-side checks passed — ask LLM to verify relevance and validity
+            setInputEnabled(false);
+            showTyping(true);
+            console.log("[Booking] Validating description via backend...");
 
-            const redirectSlug = (data.redirect_service || "").toLowerCase();
-            const redirectServiceMap = {
-                doctor: "Doctor Consultation",
-                doula: "Doula — Support",
-                lactation: "Lactation Consultant",
-                nanny: "Nanny",
-            };
+            try {
+                const resp = await apiFetch(FASTAPI_API_BASE, "/validate-booking-description", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        description: trimmed,
+                        service: bookingState.service || "",
+                    }),
+                    timeout: 8000, // 8s specifically for validation
+                });
 
-            if (redirectSlug && redirectServiceMap[redirectSlug]) {
-                console.log(`[Booking] AI suggested redirect to: ${redirectSlug}`);
-                bookingState.service = redirectServiceMap[redirectSlug];
+                const data = await resp.json().catch(() => ({}));
+                showTyping(false);
+
+                const redirectSlug = (data.redirect_service || "").toLowerCase();
+                const redirectServiceMap = {
+                    doctor: "Doctor Consultation",
+                    doula: "Doula — Support",
+                    lactation: "Lactation Consultant",
+                    nanny: "Nanny",
+                };
+
+                if (redirectSlug && redirectServiceMap[redirectSlug]) {
+                    console.log(`[Booking] AI suggested redirect to: ${redirectSlug}`);
+                    bookingState.service = redirectServiceMap[redirectSlug];
+                    bookingState.description = trimmed;
+                    bookingState.awaitingDescription = false;
+                    bookingState.editingFromReviewTarget = null;
+                    const switchMsg = (data.message && data.message.trim()) || "";
+                    if (switchMsg) await appendBotMessage(switchMsg);
+                    updateProgress(4); // Moving to confirmation prep
+                    renderReviewBookingCard();
+                    setInputEnabled(true);
+                    setTimeout(() => maybeFocusElement(userInput), 100);
+                    return;
+                }
+
+                if (data.valid === false) {
+                    // AI strictly rejects it — give user one more chance but explain why
+                    const llmMessage = (data.message && data.message.trim()) || "Please tell us why you need this service so we can help.\n\nTip: You can type or use the mic.";
+                    await appendBotMessage(llmMessage);
+                    setInputEnabled(true);
+                    setTimeout(() => maybeFocusElement(userInput), 100);
+                    return;
+                }
+
+                // data.valid is true OR undefined (fallback) -> Proceed
                 bookingState.description = trimmed;
                 bookingState.awaitingDescription = false;
                 bookingState.editingFromReviewTarget = null;
-                const switchMsg = (data.message && data.message.trim()) || "";
-                if (switchMsg) await appendBotMessage(switchMsg);
-                updateProgress(4); // Moving to confirmation prep
+                updateProgress(4);
+                setInputEnabled(true);
                 renderReviewBookingCard();
+                return;
+
+            } catch (err) {
+                const apiName = "Python/FastAPI (8000)";
+                console.error(`[Booking] ${apiName} validation failed:`, err);
+                showTyping(false);
+
+                // Graceful fallback: dont block the user if the server is slow or unreachable
+                bookingState.description = trimmed;
+                bookingState.awaitingDescription = false;
+                bookingState.editingFromReviewTarget = null;
+                updateProgress(4);
+
+                if (err.name === 'AbortError') {
+                    await appendBotMessage("Taking a bit long to verify, but let's proceed with your description!");
+                } else {
+                    console.warn(`[Booking] Proceeding to review despite ${apiName} error.`);
+                }
+
                 setInputEnabled(true);
-                setTimeout(() => maybeFocusElement(userInput), 100);
+                renderReviewBookingCard();
                 return;
             }
+        }
 
-            if (data.valid === false) {
-                // AI strictly rejects it — give user one more chance but explain why
-                const llmMessage = (data.message && data.message.trim()) || "Please tell us why you need this service so we can help.\n\nTip: You can type or use the mic.";
-                await appendBotMessage(llmMessage);
-                setInputEnabled(true);
-                setTimeout(() => maybeFocusElement(userInput), 100);
-                return;
+        showTyping(true);
+        try {
+            const response = await apiFetch(FASTAPI_API_BASE, "/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: trimmed, history: chatHistory }),
+            });
+
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            showTyping(false);
+            const taggedBookingData = extractBookingDataFromReply(data.response);
+            if (taggedBookingData) {
+                bookingPayload = taggedBookingData;
+                console.log('[Mothrly] booking_data detected:', bookingPayload);
+                const normalized = normalizeBookingPhone(taggedBookingData.customer_phone || "");
+                if (normalized) bookingState.phone = normalized;
+                if (taggedBookingData.customer_name) bookingState.name = taggedBookingData.customer_name;
+                if (taggedBookingData.service_type) bookingState.service = taggedBookingData.service_type;
+                if (taggedBookingData.location) bookingState.location = taggedBookingData.location;
+                if (taggedBookingData.appointment_date) bookingState.date = taggedBookingData.appointment_date;
+                if (taggedBookingData.appointment_time) bookingState.time = taggedBookingData.appointment_time;
+            }
+            await appendMessage(data.response, "bot");
+
+            if (
+                taggedBookingData &&
+                hasCompleteBookingData(taggedBookingData) &&
+                !bookingAutoFinalizeInFlight
+            ) {
+                let phone = (bookingPayload && bookingPayload.customer_phone) || '';
+                phone = phone.toString().trim();
+                if (phone && !phone.startsWith('+')) phone = '+' + phone;
+                if (bookingPayload) bookingPayload.customer_phone = phone;
+                bookingAutoFinalizeInFlight = true;
+                setTimeout(async () => {
+                    try {
+                        await finalizeBooking();
+                    } finally {
+                        bookingAutoFinalizeInFlight = false;
+                    }
+                }, 120);
             }
 
-            // data.valid is true OR undefined (fallback) -> Proceed
-            bookingState.description = trimmed;
-            bookingState.awaitingDescription = false;
-            bookingState.editingFromReviewTarget = null;
-            updateProgress(4);
-            setInputEnabled(true);
-            renderReviewBookingCard();
-            return;
-
+            chatHistory.push({ role: "user", content: trimmed });
+            chatHistory.push({ role: "assistant", content: data.response });
+            maybeRenderBookingChipsAfterChat(trimmed);
         } catch (err) {
             const apiName = "Python/FastAPI (8000)";
-            console.error(`[Booking] ${apiName} validation failed:`, err);
+            console.error(`[Chat] ${apiName} Error:`, err);
             showTyping(false);
-            
-            // Graceful fallback: dont block the user if the server is slow or unreachable
-            bookingState.description = trimmed;
-            bookingState.awaitingDescription = false;
-            bookingState.editingFromReviewTarget = null;
-            updateProgress(4);
-            
-            if (err.name === 'AbortError') {
-                await appendBotMessage("Taking a bit long to verify, but let's proceed with your description!");
-            } else {
-                console.warn(`[Booking] Proceeding to review despite ${apiName} error.`);
-            }
-            
+            await appendMessage(`Oops — I couldn't reach the ${apiName} server. Please ensure it is running.`, "bot");
+        } finally {
             setInputEnabled(true);
-            renderReviewBookingCard();
-            return;
+            setTimeout(() => maybeFocusElement(userInput), 100);
+            saveSessionSnapshot();
         }
-    }
-
-    showTyping(true);
-    try {
-        const response = await apiFetch(FASTAPI_API_BASE, "/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message: trimmed, history: chatHistory }),
-        });
-
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        showTyping(false);
-        const taggedBookingData = extractBookingDataFromReply(data.response);
-        if (taggedBookingData) {
-            bookingPayload = taggedBookingData;
-            console.log('[Mothrly] booking_data detected:', bookingPayload);
-            const normalized = normalizeBookingPhone(taggedBookingData.customer_phone || "");
-            if (normalized) bookingState.phone = normalized;
-            if (taggedBookingData.customer_name) bookingState.name = taggedBookingData.customer_name;
-            if (taggedBookingData.service_type) bookingState.service = taggedBookingData.service_type;
-            if (taggedBookingData.location) bookingState.location = taggedBookingData.location;
-            if (taggedBookingData.appointment_date) bookingState.date = taggedBookingData.appointment_date;
-            if (taggedBookingData.appointment_time) bookingState.time = taggedBookingData.appointment_time;
-        }
-        await appendMessage(data.response, "bot");
-
-        if (
-            taggedBookingData &&
-            hasCompleteBookingData(taggedBookingData) &&
-            !bookingAutoFinalizeInFlight
-        ) {
-            let phone = (bookingPayload && bookingPayload.customer_phone) || '';
-            phone = phone.toString().trim();
-            if (phone && !phone.startsWith('+')) phone = '+' + phone;
-            if (bookingPayload) bookingPayload.customer_phone = phone;
-            bookingAutoFinalizeInFlight = true;
-            setTimeout(async () => {
-                try {
-                    await finalizeBooking();
-                } finally {
-                    bookingAutoFinalizeInFlight = false;
-                }
-            }, 120);
-        }
-
-        chatHistory.push({ role: "user", content: trimmed });
-        chatHistory.push({ role: "assistant", content: data.response });
-        maybeRenderBookingChipsAfterChat(trimmed);
     } catch (err) {
-        const apiName = "Python/FastAPI (8000)";
-        console.error(`[Chat] ${apiName} Error:`, err);
+        console.error("[Chat] Global sendMessage error:", err);
         showTyping(false);
-        await appendMessage(`Oops — I couldn't reach the ${apiName} server. Please ensure it is running.`, "bot");
-    } finally {
         setInputEnabled(true);
-        setTimeout(() => maybeFocusElement(userInput), 100);
-        saveSessionSnapshot();
     }
-} catch (err) {
-    console.error("[Chat] Global sendMessage error:", err);
-    showTyping(false);
-    setInputEnabled(true);
-}
 }
 
 // ── Reset flow ────────────────────────────────────────────────────────
@@ -964,6 +1036,8 @@ async function resetChat() {
         chatHistory = [];
         bookingState = {};
         bookingPayload = null;
+        latestBooking = null;
+        bookingAutoFinalizeInFlight = false;
         messagesContainer.innerHTML = "";
         showTyping(false);
         updateProgress(1);
@@ -1010,10 +1084,10 @@ async function sendWelcomeMessage() {
     const quickActionsBar = document.getElementById("quick-actions-bar");
     if (quickActionsBar) quickActionsBar.classList.remove("quick-actions-bar--visible");
 
-    const text = "Hi, I'm **Mothrly Assistant**. I can help you book a doula or consultation.\n\n**What do you need help with today?**";
+    const text = "Hi, I'm **Mothrly Assistant**. I can help you book a doula or consultation.\n\n**How can i help you today?**";
 
     await appendMessage(text, "bot", true);
-    
+
     // Render both primary grid and slider cards after the bot finishes typing
     sendWelcomeChips();
 }
@@ -1039,10 +1113,10 @@ async function handleServiceSelection(service) {
         await appendBotMessage("Great! What kind of support do you need?");
         bookingState.subType = "Doula";
         renderSubOptions("doula-reason", [
-            { label: "Pregnancy Support",    desc: "Pregnancy Guidance" },
-            { label: "Labor & Delivery",     desc: "Labor Support" },
-            { label: "After Birth Care",     desc: "Postpartum Care" },
-            { label: "Breastfeeding Help",   desc: "Nursing Support" },
+            { label: "Pregnancy Support", desc: "Pregnancy Guidance" },
+            { label: "Labor & Delivery", desc: "Labor Support" },
+            { label: "After Birth Care", desc: "Postpartum Care" },
+            { label: "Breastfeeding Help", desc: "Nursing Support" },
         ]);
         return;
     }
@@ -1050,7 +1124,7 @@ async function handleServiceSelection(service) {
     if (service === "Book Nanny") {
         bookingState = { step: 1, service: "Nanny" };
         setTimeout(async () => {
-            await appendBotMessage(`Perfect! Let me set up your **Nanny** booking for childcare at home.\n\nFirst, tell us about the child(ren) we'll be caring for.`);
+            await appendBotMessage(`Great! Let's book your nanny.\n\nTell me about the child(ren).`);
             renderNannyChildDetailsCard();
         }, 400);
         return;
@@ -1060,7 +1134,7 @@ async function handleServiceSelection(service) {
         await appendBotMessage("Would you prefer an **Online Consultation** or an **In-Clinic Visit**?");
         renderSubOptions("consult-mode", [
             { label: "Online Consultation", desc: "Video Call With Doctor" },
-            { label: "In-Clinic Visit",     desc: "Visit Our Clinic In Person" },
+            { label: "In-Clinic Visit", desc: "Visit Our Clinic In Person" },
         ]);
         return;
     }
@@ -1068,9 +1142,9 @@ async function handleServiceSelection(service) {
     if (service === "Book Lactation Consultant") {
         await appendBotMessage("How would you like to meet your lactation consultant?");
         renderSubOptions("lactation-mode", [
-            { label: "Home Visit",          desc: "Consultant Visits You" },
-            { label: "Online Session",      desc: "Video Call Support" },
-            { label: "Clinic Appointment",  desc: "Visit Our Clinic" },
+            { label: "Home Visit", desc: "Consultant Visits You" },
+            { label: "Online Session", desc: "Video Call Support" },
+            { label: "Clinic Appointment", desc: "Visit Our Clinic" },
         ]);
         return;
     }
@@ -1088,8 +1162,8 @@ async function handleServiceSelection(service) {
     if (service === "About Motherly") {
         await appendBotMessage("Here's a quick overview of **Motherly**.\n\nWe are a maternal care platform connecting mothers with certified doulas, doctors, lactation consultants, and nutritionists — all in one place.\n\n[Chennai, India](https://www.google.com/maps/search/?api=1&query=Motherly+Care+Ethos+Chennai)\n[+91 99448 90577](tel:+919944890577)\n[motherlycareethos@gmail.com](mailto:motherlycareethos@gmail.com)\n\nWould you like to book a service now?");
         renderSubOptions("about-next", [
-            { label: "Book a Service",   desc: "Start booking now" },
-            { label: "Contact Support",  desc: "Talk to our team" },
+            { label: "Book a Service", desc: "Start booking now" },
+            { label: "Contact Support", desc: "Talk to our team" },
         ]);
         return;
     }
@@ -1117,14 +1191,14 @@ const PRENATAL_LEARN_OPTIONS = [
 function getPrenatalTopicIcon(iconKey) {
     var s = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
     switch (iconKey) {
-        case "diet":   s += '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/>'; break;
-        case "brain":  s += '<path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"/>'; break;
+        case "diet": s += '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/>'; break;
+        case "brain": s += '<path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"/>'; break;
         case "symptoms": s += '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>'; break;
-        case "avoid":  s += '<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>'; break;
+        case "avoid": s += '<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>'; break;
         case "hydration": s += '<path d="M12 22c4-4 8-7.5 8-12a8 8 0 0 0-16 0c0 4.5 4 8 8 12z"/>'; break;
-        case "weight":  s += '<rect x="2" y="2" width="20" height="20" rx="2"/><circle cx="12" cy="12" r="7"/><path d="M12 12l-3 4"/><path d="M12 5v2"/><path d="M5 12h2"/><path d="M17 12h2"/><path d="M12 17v2"/>'; break;
+        case "weight": s += '<rect x="2" y="2" width="20" height="20" rx="2"/><circle cx="12" cy="12" r="7"/><path d="M12 12l-3 4"/><path d="M12 5v2"/><path d="M5 12h2"/><path d="M17 12h2"/><path d="M12 17v2"/>'; break;
         case "postpartum": s += '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>'; break;
-        case "daily":   s += '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>'; break;
+        case "daily": s += '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>'; break;
         default: s += '<circle cx="12" cy="12" r="10"/>';
     }
     return s + '</svg>';
@@ -1203,6 +1277,7 @@ function renderSubOptions(context, options) {
 
     options.forEach(({ label, desc }) => {
         const btn = document.createElement("button");
+        btn.dataset.label = label;
         btn.className = "option-btn fade-in";
         btn.style.textAlign = "left";
         btn.innerHTML = `
@@ -1243,10 +1318,10 @@ async function handleSubOptionSelection(context, subOption) {
         bookingState.subType = subOption;
         await appendBotMessage(`Got it! You'd like a **${subOption}**.\n\nWhat kind of support do you need?`);
         renderSubOptions("doula-reason", [
-            { label: "Pregnancy Support",    desc: "Guidance During pregnancy" },
-            { label: "Labor & Delivery",     desc: "Support During Birth" },
-            { label: "After Birth Care",     desc: "Post-Natal Recovery Help" },
-            { label: "Breastfeeding Help",   desc: "Nursing & Lactation Support" },
+            { label: "Pregnancy Support", desc: "Guidance During pregnancy" },
+            { label: "Labor & Delivery", desc: "Support During Birth" },
+            { label: "After Birth Care", desc: "Post-Natal Recovery Help" },
+            { label: "Breastfeeding Help", desc: "Nursing & Lactation Support" },
         ]);
         return;
     }
@@ -1279,7 +1354,7 @@ async function handleSubOptionSelection(context, subOption) {
     // ── Prenatal learn (topic selected) → Provide curated tips immediately ───────────────────
     if (context === "prenatal-learn") {
         const localTip = PRENATAL_TIPS[subOption];
-        
+
         if (localTip) {
             await appendBotMessage(localTip);
             chatHistory.push({ role: "user", content: subOption });
@@ -1325,14 +1400,14 @@ async function handleSubOptionSelection(context, subOption) {
 // ── Show only the main option chips (for re-use) ──────────────────────
 function sendWelcomeChips(renderPrimary = true, renderSecondary = true) {
     const opts = [
-        { label: "Book Doula", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>' },
-        { label: "Book Nanny", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' },
-        { label: "Book Doctor Consultation", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>' },
-        { label: "Book Lactation Consultant", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a8 8 0 0 0 8-8c0-4.42-4-8-8-12-4 4-8 7.58-8 12a8 8 0 0 0 8 8z"/><circle cx="12" cy="14" r="2"/></svg>' },
-        { label: "Prenatal Nutrition", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>' },
-        { label: "About Motherly", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>' },
-        { label: "Contact Support", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.32 2 2 0 0 1 3.58 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.56a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.72 16z"/></svg>' },
-        { label: "Reschedule Booking", icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>' },
+        { label: "Book Doula",                desc: "Birth support for mothers",    icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>' },
+        { label: "Book Nanny",                desc: "Child care",                   icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' },
+        { label: "Book Doctor Consultation",  desc: "Consult gynaecologists",       icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>' },
+        { label: "Book Lactation Consultant", desc: "Feeding support",              icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a8 8 0 0 0 8-8c0-4.42-4-8-8-12-4 4-8 7.58-8 12a8 8 0 0 0 8 8z"/><circle cx="12" cy="14" r="2"/></svg>' },
+        { label: "Prenatal Nutrition",        desc: "Diet & wellness guidance",     icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>' },
+        { label: "About Motherly",            desc: "Learn about our services",     icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>' },
+        { label: "Contact Support",           desc: "Talk to our team",             icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.32 2 2 0 0 1 3.58 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.56a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.72 16z"/></svg>' },
+        { label: "Reschedule Booking",        desc: "Modify your appointment",      icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>' },
     ];
 
     const secondarySet = new Set(["Reschedule Booking", "Contact Support", "Prenatal Nutrition", "About Motherly"]);
@@ -1344,19 +1419,21 @@ function sendWelcomeChips(renderPrimary = true, renderSecondary = true) {
         const primaryGrid = document.createElement("div");
         primaryGrid.className = "welcome-options-main";
 
-        opts.forEach(({ label, icon }) => {
+        opts.forEach(({ label, desc, icon }) => {
             if (!secondarySet.has(label)) {
                 const btn = document.createElement("button");
                 btn.className = "option-btn fade-in option-btn--welcome-primary";
+                btn.dataset.label = label;
                 btn.innerHTML = `
                     <span style="display:flex;align-items:center;justify-content:center;width:18px;height:18px;margin-bottom:2px;flex-shrink:0;">${icon}</span>
                     <span style="text-align:center;">${sentenceCaps(label)}</span>
+                    ${desc ? `<span class="option-btn-sub">${desc}</span>` : ""}
                 `;
                 btn.addEventListener("click", () => handleServiceSelection(label));
                 primaryGrid.appendChild(btn);
             }
         });
-        
+
         optionsWrap.appendChild(primaryGrid);
         messagesContainer.appendChild(optionsWrap);
         scrollToShowOptions(optionsWrap);
@@ -1366,7 +1443,7 @@ function sendWelcomeChips(renderPrimary = true, renderSecondary = true) {
         const quickActionsBar = document.getElementById("quick-actions-bar");
         if (quickActionsBar) {
             quickActionsBar.innerHTML = "";
-            
+
             secondaryOrder.forEach((label) => {
                 const opt = opts.find(o => o.label === label);
                 if (opt) {
@@ -1381,7 +1458,7 @@ function sendWelcomeChips(renderPrimary = true, renderSecondary = true) {
                     quickActionsBar.appendChild(btn);
                 }
             });
-            
+
             quickActionsBar.classList.add("quick-actions-bar--visible");
         }
     }
@@ -1395,9 +1472,9 @@ function renderNannyChildDetailsCard() {
     delete bookingState._pendingChildAge;
 
     const AGE_OPTIONS = [
-        { value: "0-1", label: "0 – 1 year",     sub: "Infant"   },
-        { value: "1-3", label: "1 – 3 years",    sub: "Toddler"  },
-        { value: "3+",  label: "3 years & above", sub: "Child"    },
+        { value: "0-1", label: "0 – 1 year", sub: "Infant" },
+        { value: "1-3", label: "1 – 3 years", sub: "Toddler" },
+        { value: "3+", label: "3 years & above", sub: "Child" },
     ];
 
     const card = document.createElement("div");
@@ -1449,12 +1526,11 @@ function renderNannyChildDetailsCard() {
     submitBtn.textContent = "Next → Schedule";
     submitBtn.onclick = () => submitNannyChildDetails();
     card.appendChild(submitBtn);
-
-    messagesContainer.appendChild(card);
+    appendBotCard(card);
     scrollToBottomIfNearBottom();
 }
 
-window.submitNannyChildDetails = function() {
+window.submitNannyChildDetails = function () {
     const age = bookingState._pendingChildAge;
 
     if (!age) {
@@ -1474,20 +1550,20 @@ window.submitNannyChildDetails = function() {
 function renderContactSupportCard() {
     const row = document.createElement("div");
     row.className = "message bot-message fade-in";
-    
+
     // Bot Avatar Box
     const avatarHtml = `<div class="message-avatar-box" style="background:#fff;border:1px solid #E5E7EB;overflow:hidden;"><img src="/static/motherly_logo_v3.png" style="width:100%;height:100%;object-fit:cover;padding:0;"></div>`;
-    
+
     const card = document.createElement("div");
     card.className = "booking-card fade-in"; // Removed chips-container to avoid conflict
     card.id = "contact-support-card";
-    card.style.width = "fit-content";
-    card.style.minWidth = "260px";
+    card.style.width = "auto";
+    card.style.maxWidth = "280px";
     card.style.padding = "14px 18px 14px 22px";
     card.style.marginTop = "0";
     card.style.boxShadow = "var(--shadow-bubble)";
     console.log("Contact Support Card Rendered (safeguards enabled)");
-    
+
     card.innerHTML = `
         <div class="booking-card-title">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
@@ -1504,7 +1580,7 @@ function renderContactSupportCard() {
                 <span style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:#FEE2E2;flex-shrink:0;">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9B1A52" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
                 </span>
-                <span style="color:#9B1A52;font-weight:600;font-size:13px;">motherlycareethos@gmail.com</span>
+                <span style="color:#9B1A52;font-weight:600;font-size:11px;word-break:break-all;line-height:1.2;">motherlycareethos@gmail.com</span>
             </a>
             <a href="https://www.google.com/maps/search/?api=1&query=Motherly+Care+Ethos+Chennai" target="_blank" onclick="event.stopPropagation();" style="display:flex;align-items:center;gap:14px;text-decoration:none;cursor:pointer;transition:transform 0.2s;pointer-events:auto !important;position:relative;z-index:99;" onmouseenter="this.style.transform='translateX(4px)'" onmouseleave="this.style.transform='translateX(0)'">
                 <span style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:#FEE2E2;flex-shrink:0;">
@@ -1514,14 +1590,13 @@ function renderContactSupportCard() {
             </a>
         </div>
     `;
-    
+
     row.innerHTML = avatarHtml;
     row.appendChild(card);
-    
+
     messagesContainer.appendChild(row);
     scrollToBottomIfNearBottom();
 }
-
 
 // ── Step 2 — Schedule Card ────────────────────────────────────────────
 function renderScheduleCard() {
@@ -1548,20 +1623,20 @@ function renderScheduleCard() {
                 Detect
             </button>
         </div>
-        <p id="loc-status" style="font-size:12px;color:#9CA3AF;margin-top:4px; min-height:16px;"></p>
+        <p id="loc-status" style="font-size:8px;color:#9CA3AF;margin-top:4px; min-height:14px;"></p>
 
-        <label class="booking-label">Date <span class="booking-required">*</span></label>
-        <input type="text" id="date-input" class="booking-input booking-input--picker" placeholder="Select Date" readonly inputmode="none" aria-label="Select Date">
-
-        <label class="booking-label">Time <span class="booking-required">*</span></label>
-        <input type="text" id="time-input" class="booking-input booking-input--picker" placeholder="Select Time" readonly inputmode="none" aria-label="Select Time">
-        <p class="booking-hint">Available: 9:00 AM – 6:00 PM</p>
+        <label class="booking-label">Appointment Slot <span class="booking-required">*</span></label>
+        <div class="slot-input-wrap">
+            <input type="text" id="combined-slot-input" class="booking-input booking-input--picker" placeholder="Select Date & Time" readonly inputmode="none" aria-label="Select Date and Time">
+            <!-- Hidden inputs to store machine values -->
+            <input type="hidden" id="date-input">
+            <input type="hidden" id="time-input">
+        </div>
+        <p class="booking-hint">9 AM – 6 PM</p>
 
         <button onclick="submitSchedule()" class="booking-btn">Next →</button>
     `;
-    messagesContainer.appendChild(card);
-    // Ensure the full schedule card (especially time selector + button) is visible inside the chat viewport
-    scrollToRevealMessage(card);
+    appendBotCard(card);
 
     // Pre-fill location if already detected from page-load GPS request
     prefillLocationField();
@@ -1571,33 +1646,21 @@ function renderScheduleCard() {
 }
 
 function initSchedulePickers(todayStr) {
-    const dateEl = document.getElementById("date-input");
-    const timeEl = document.getElementById("time-input");
-    if (!dateEl || !timeEl) return;
+    const slotEl = document.getElementById("combined-slot-input");
+    const dateInput = document.getElementById("date-input");
+    const timeInput = document.getElementById("time-input");
+    if (!slotEl || !dateInput || !timeInput) return;
 
-    // ── Date: custom in-panel calendar widget ──────────────────────────
-    const openDatePicker = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        openCustomDatePicker(dateEl, todayStr);
+    const openUnified = (e) => {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        if (window.__unifiedPickerLastClosed && Date.now() - window.__unifiedPickerLastClosed < 400) {
+            return; // Prevent ghost click from reopening modal
+        }
+        openUnifiedSchedulePicker(dateInput, timeInput, todayStr);
     };
-    dateEl.addEventListener("pointerup", openDatePicker);
-    dateEl.addEventListener("click", openDatePicker);
 
-    const openTimePicker = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        openCustomTimePicker(timeEl);
-    };
-    timeEl.addEventListener("click", openTimePicker);
-    // On mobile, touchend fires before click — use it so the picker opens on the FIRST tap
-    if (isMobileOrTablet()) {
-        timeEl.addEventListener("touchend", (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            openCustomTimePicker(timeEl);
-        }, { passive: false });
-    }
+    slotEl.addEventListener("pointerup", openUnified);
+    slotEl.addEventListener("click", openUnified);
 }
 
 function parseIsoDate(isoDate) {
@@ -1632,157 +1695,208 @@ function isDateInRange(dateObj, minDate, maxDate) {
     return dateObj >= minDate && dateObj <= maxDate;
 }
 
-function openCustomDatePicker(dateInputEl, todayStr) {
+function openUnifiedSchedulePicker(dateInputEl, timeInputEl, todayStr) {
     const panelEl = document.getElementById("chat-panel");
     if (!panelEl) return;
 
-    const existing = panelEl.querySelector(".date-picker-overlay");
-    if (existing) existing.remove();
+    // Remove any existing overlay
+    const old = panelEl.querySelector(".unified-picker-overlay");
+    if (old) old.remove();
 
     const minDate = parseIsoDate(todayStr) || new Date();
     minDate.setHours(0, 0, 0, 0);
-    const maxDate = new Date(minDate);
-    maxDate.setFullYear(maxDate.getFullYear() + 1);
-    maxDate.setHours(23, 59, 59, 999);
 
-    const savedIso = dateInputEl.dataset.iso || bookingState.date || "";
-    const savedDate = parseIsoDate(savedIso);
-    let selectedDate = savedDate && isDateInRange(savedDate, minDate, maxDate) ? savedDate : null;
-    let viewingDate = selectedDate ? new Date(selectedDate) : new Date(minDate);
+    const savedDateIso = dateInputEl.dataset.iso || bookingState.date || todayStr;
+    let selectedDate = parseIsoDate(savedDateIso) || new Date(minDate);
+    if (selectedDate < minDate) selectedDate = new Date(minDate);
+
+    const savedTime24 = timeInputEl.dataset.value24 || bookingState.time || "";
+    let selectedTime24 = savedTime24;
 
     const overlay = document.createElement("div");
-    overlay.className = "date-picker-overlay";
-    overlay.setAttribute("role", "dialog");
-    overlay.setAttribute("aria-label", "Select Date");
+    overlay.className = "unified-picker-overlay";
 
     const card = document.createElement("div");
-    card.className = "date-picker-card";
+    card.className = "unified-picker-card";
 
     const header = document.createElement("div");
-    header.className = "date-picker-header";
+    header.className = "unified-picker-header";
+    header.innerHTML = `<div class="unified-picker-title">Select Date & Time</div>`;
 
-    const prevBtn = document.createElement("button");
-    prevBtn.type = "button";
-    prevBtn.className = "date-picker-nav";
-    prevBtn.textContent = "‹";
+    // Date Strip
+    const dateLabel = document.createElement("label");
+    dateLabel.className = "date-strip-label";
+    dateLabel.textContent = "Select Date";
 
-    const title = document.createElement("span");
-    title.className = "date-picker-title";
+    const dateScroller = document.createElement("div");
+    dateScroller.className = "date-strip-scroller";
 
-    const nextBtn = document.createElement("button");
-    nextBtn.type = "button";
-    nextBtn.className = "date-picker-nav";
-    nextBtn.textContent = "›";
+    // Time Section
+    const timeSection = document.createElement("div");
+    timeSection.className = "unified-time-section";
 
-    header.append(prevBtn, title, nextBtn);
+    const renderDateStrip = () => {
+        dateScroller.innerHTML = "";
+        for (let i = 0; i < 21; i++) {
+            const d = new Date(minDate);
+            d.setDate(d.getDate() + i);
 
-    const daysRow = document.createElement("div");
-    daysRow.className = "date-picker-days";
-    ["MO", "TU", "WE", "TH", "FR", "SA", "SU"].forEach((d) => {
-        const day = document.createElement("span");
-        day.textContent = d;
-        daysRow.appendChild(day);
-    });
+            const chip = document.createElement("div");
+            chip.className = "date-chip";
+            if (sameDay(d, selectedDate)) chip.classList.add("is-active");
 
-    const datesGrid = document.createElement("div");
-    datesGrid.className = "date-picker-dates";
+            const dayName = d.toLocaleDateString("en-IN", { weekday: "short" }).toUpperCase();
+            const dayNum = d.getDate();
+            const monthName = d.toLocaleDateString("en-IN", { month: "short" });
+
+            chip.innerHTML = `
+                <span class="date-chip-day">${dayName}</span>
+                <span class="date-chip-num">${dayNum}</span>
+                <span class="date-chip-month">${monthName}</span>
+            `;
+
+            const handleDateClick = (e) => {
+                if (e) { e.preventDefault(); e.stopPropagation(); }
+                selectedDate = new Date(d);
+                renderDateStrip();
+                renderTimeSlots();
+            };
+            chip.addEventListener("pointerup", handleDateClick);
+            chip.addEventListener("click", (e) => e.preventDefault());
+            dateScroller.appendChild(chip);
+        }
+    };
+
+    const renderTimeSlots = () => {
+        timeSection.innerHTML = "";
+        const now = new Date();
+        const isToday = sameDay(selectedDate, now);
+        const minBookableMinutes = (now.getHours() * 60) + now.getMinutes() + 30;
+
+        const allSlots = buildTimeSlots();
+        const groups = [
+            { title: "🌤 MORNING", slots: allSlots.filter(s => parseInt(s.value24.split(":")[0]) < 12) },
+            { title: "☀️ AFTERNOON", slots: allSlots.filter(s => parseInt(s.value24.split(":")[0]) >= 12 && parseInt(s.value24.split(":")[0]) < 17) },
+            { title: "🌙 EVENING", slots: allSlots.filter(s => parseInt(s.value24.split(":")[0]) >= 17) }
+        ];
+
+        groups.forEach(group => {
+            if (group.slots.length === 0) return;
+            const gWrap = document.createElement("div");
+            gWrap.className = "time-picker-group";
+
+            const gTitle = document.createElement("div");
+            gTitle.className = "time-picker-group-title";
+            gTitle.style.cssText = "font-size: 9px; font-weight: 700; color: #9CA3AF; margin-bottom: 6px; letter-spacing: 0.5px;";
+
+            const gGrid = document.createElement("div");
+            gGrid.className = "time-picker-slots";
+            gGrid.style.cssText = "display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;";
+
+            let availableInGroup = 0;
+            group.slots.forEach(s => {
+                const [sh, sm] = s.value24.split(":").map(Number);
+                const isPast = isToday && (sh * 60 + sm) < minBookableMinutes;
+
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "time-picker-slot";
+                btn.textContent = s.label;
+                btn.dataset.value24 = s.value24;
+
+                if (isPast) {
+                    btn.classList.add("time-picker-slot--disabled");
+                    btn.disabled = true;
+                } else {
+                    availableInGroup++;
+                    if (s.value24 === selectedTime24) btn.classList.add("time-picker-slot--selected");
+
+                    const handleTimeSelect = (e) => {
+                        if (e) { e.preventDefault(); e.stopPropagation(); }
+                        timeSection.querySelectorAll(".time-picker-slot--selected").forEach(b => b.classList.remove("time-picker-slot--selected"));
+                        btn.classList.add("time-picker-slot--selected");
+                        selectedTime24 = s.value24;
+                    };
+                    btn.addEventListener("pointerup", handleTimeSelect);
+                    btn.addEventListener("click", (e) => e.preventDefault());
+                }
+                gGrid.appendChild(btn);
+            });
+
+            gTitle.innerHTML = `${group.title} <span style="background:#F3F4F6; padding:1px 4px; border-radius:6px; margin-left:6px;">${availableInGroup} slots</span>`;
+            gWrap.append(gTitle, gGrid);
+            timeSection.appendChild(gWrap);
+        });
+    };
 
     const actions = document.createElement("div");
-    actions.className = "date-picker-actions";
+    actions.className = "unified-picker-actions";
+
     const cancelBtn = document.createElement("button");
-    cancelBtn.type = "button";
-    cancelBtn.className = "date-picker-btn date-picker-btn--cancel";
+    cancelBtn.className = "time-picker-btn time-picker-btn--cancel";
     cancelBtn.textContent = "Cancel";
+
     const okBtn = document.createElement("button");
-    okBtn.type = "button";
-    okBtn.className = "date-picker-btn date-picker-btn--ok";
-    okBtn.textContent = "OK";
-    actions.append(cancelBtn, okBtn);
+    okBtn.className = "time-picker-btn time-picker-btn--ok";
+    okBtn.textContent = "Confirm";
 
-    function close() {
-        overlay.classList.remove("date-picker-overlay--visible");
+    const close = () => {
+        window.__unifiedPickerLastClosed = Date.now();
+        overlay.classList.remove("unified-picker-overlay--visible");
         setTimeout(() => overlay.remove(), 200);
-    }
+    };
 
-    function renderMonth() {
-        title.textContent = viewingDate.toLocaleDateString("en-IN", {
-            month: "short",
-            year: "numeric",
-        });
-        datesGrid.innerHTML = "";
-
-        const year = viewingDate.getFullYear();
-        const month = viewingDate.getMonth();
-        const firstDay = new Date(year, month, 1).getDay();
-        const daysInMonth = new Date(year, month + 1, 0).getDate();
-        const startDay = firstDay === 0 ? 6 : firstDay - 1;
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        for (let i = 0; i < startDay; i++) {
-            const empty = document.createElement("div");
-            empty.className = "date-picker-empty";
-            datesGrid.appendChild(empty);
-        }
-
-        for (let dayNum = 1; dayNum <= daysInMonth; dayNum++) {
-            const cellDate = new Date(year, month, dayNum);
-            cellDate.setHours(0, 0, 0, 0);
-            const btn = document.createElement("button");
-            btn.type = "button";
-            btn.className = "date-picker-date";
-            btn.textContent = String(dayNum);
-
-            if (sameDay(cellDate, today)) btn.classList.add("date-picker-date--today");
-            if (selectedDate && sameDay(cellDate, selectedDate)) btn.classList.add("date-picker-date--selected");
-
-            if (!isDateInRange(cellDate, minDate, maxDate)) {
-                btn.classList.add("date-picker-date--inactive");
-                btn.disabled = true;
-            } else {
-                btn.addEventListener("click", () => {
-                    selectedDate = cellDate;
-                    renderMonth();
-                });
-            }
-
-            datesGrid.appendChild(btn);
-        }
-
-        const viewMonthStart = new Date(year, month, 1);
-        const minMonthStart = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
-        const maxMonthStart = new Date(maxDate.getFullYear(), maxDate.getMonth(), 1);
-        prevBtn.disabled = viewMonthStart <= minMonthStart;
-        nextBtn.disabled = viewMonthStart >= maxMonthStart;
-    }
-
-    prevBtn.addEventListener("click", () => {
-        viewingDate = new Date(viewingDate.getFullYear(), viewingDate.getMonth() - 1, 1);
-        renderMonth();
-    });
-    nextBtn.addEventListener("click", () => {
-        viewingDate = new Date(viewingDate.getFullYear(), viewingDate.getMonth() + 1, 1);
-        renderMonth();
-    });
-    cancelBtn.addEventListener("click", close);
-    okBtn.addEventListener("click", () => {
-        if (selectedDate) {
-            dateInputEl.dataset.iso = formatIsoDate(selectedDate);
-            dateInputEl.value = formatDisplayDate(selectedDate);
-            clearCardError("schedule-card");
-        }
+    const handleCancel = (e) => {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
         close();
-    });
+    };
+    cancelBtn.addEventListener("pointerup", handleCancel);
+    cancelBtn.addEventListener("click", handleCancel);
 
-    overlay.addEventListener("click", (e) => {
+    const handleConfirm = (e) => {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        if (!selectedTime24) {
+            alert("Please select a time slot.");
+            return;
+        }
+        dateInputEl.dataset.iso = formatIsoDate(selectedDate);
+        dateInputEl.value = formatDisplayDate(selectedDate);
+        timeInputEl.dataset.value24 = selectedTime24;
+        timeInputEl.value = formatTime(selectedTime24);
+
+        // Update display field
+        const slotDisplay = document.getElementById("combined-slot-input");
+        if (slotDisplay) {
+            slotDisplay.value = `${dateInputEl.value} · ${timeInputEl.value}`;
+        }
+
+        clearCardError("schedule-card");
+        close();
+    };
+    okBtn.addEventListener("pointerup", handleConfirm);
+    okBtn.addEventListener("click", handleConfirm);
+
+    const handleOverlayClick = (e) => {
         if (e.target === overlay) close();
-    });
+    };
+    overlay.addEventListener("pointerup", handleOverlayClick);
+    overlay.addEventListener("click", handleOverlayClick);
 
-    card.append(header, daysRow, datesGrid, actions);
+    renderDateStrip();
+    renderTimeSlots();
+
+    actions.append(cancelBtn, okBtn);
+    card.append(header, dateLabel, dateScroller, timeSection, actions);
     overlay.appendChild(card);
     panelEl.appendChild(overlay);
-    renderMonth();
-    requestAnimationFrame(() => overlay.classList.add("date-picker-overlay--visible"));
+
+    requestAnimationFrame(() => overlay.classList.add("unified-picker-overlay--visible"));
+
+    // Auto-scroll to selected date chip
+    setTimeout(() => {
+        const activeChip = dateScroller.querySelector(".date-chip.is-active");
+        if (activeChip) activeChip.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+    }, 100);
 }
 
 // Business hours: 9:00 AM – 6:00 PM, 30-min steps
@@ -1803,129 +1917,12 @@ function buildTimeSlots() {
     return slots;
 }
 
-function openCustomTimePicker(timeInputEl) {
-    if (isMobileOrTablet()) {
-        openMdTimePicker(timeInputEl);
-        return;
-    }
-    const panelEl = document.getElementById("chat-panel");
-    if (!panelEl) return;
-
-    // Remove any existing overlay
-    const existing = panelEl.querySelector(".time-picker-overlay");
-    if (existing) existing.remove();
-
-    const currentValue24 = timeInputEl.dataset.value24 || "";
-    const slots = buildTimeSlots();
-    const dateInputEl = document.getElementById("date-input");
-    const selectedDateIso = dateInputEl?.dataset?.iso || bookingState.date || "";
-    const todayIso = formatIsoDate(new Date());
-    const isSameDayBooking = selectedDateIso === todayIso;
-    const now = new Date();
-    const nowMinutes = (now.getHours() * 60) + now.getMinutes();
-    const minLeadMinutes = 30;
-    const minBookableMinutes = nowMinutes + minLeadMinutes;
-
-    const overlay = document.createElement("div");
-    overlay.className = "time-picker-overlay";
-    overlay.setAttribute("role", "dialog");
-    overlay.setAttribute("aria-label", "Select time");
-
-    const card = document.createElement("div");
-    card.className = "time-picker-card";
-
-    const title = document.createElement("div");
-    title.className = "time-picker-title";
-    title.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Select Time`;
-
-    const slotsWrap = document.createElement("div");
-    slotsWrap.className = "time-picker-slots";
-
-    const renderSlots = () => {
-        const now = new Date();
-        const nowMinutes = (now.getHours() * 60) + now.getMinutes();
-        const minBookableMinutes = nowMinutes + 30; // 30-min lead
-        const currentIso = formatIsoDate(now);
-        const isToday = selectedDateIso === currentIso;
-
-        slotsWrap.innerHTML = "";
-        slots.forEach(({ value24, label }) => {
-            const btn = document.createElement("button");
-            btn.type = "button";
-            btn.className = "time-picker-slot";
-            const [slotH, slotM] = value24.split(":").map(Number);
-            const slotMinutes = (slotH * 60) + slotM;
-            const isPastSlot = isToday && slotMinutes < minBookableMinutes;
-            
-            if (isPastSlot) {
-                btn.classList.add("time-picker-slot--disabled");
-                btn.disabled = true;
-            }
-            if (!isPastSlot && value24 === (timeInputEl.dataset.value24 || "")) {
-                btn.classList.add("time-picker-slot--selected");
-            }
-            
-            btn.textContent = label;
-            btn.dataset.value24 = value24;
-            btn.dataset.label = label;
-            btn.addEventListener("click", () => {
-                if (btn.disabled) return;
-                slotsWrap.querySelectorAll(".time-picker-slot--selected").forEach((b) => b.classList.remove("time-picker-slot--selected"));
-                btn.classList.add("time-picker-slot--selected");
-            });
-            slotsWrap.appendChild(btn);
-        });
-    };
-
-    renderSlots();
-    // Refresh every 30 seconds while open
-    const refreshInterval = setInterval(renderSlots, 30000);
-
-    const actions = document.createElement("div");
-    actions.className = "time-picker-actions";
-    const cancelBtn = document.createElement("button");
-    cancelBtn.type = "button";
-    cancelBtn.className = "time-picker-btn time-picker-btn--cancel";
-    cancelBtn.textContent = "Cancel";
-    const okBtn = document.createElement("button");
-    okBtn.type = "button";
-    okBtn.className = "time-picker-btn time-picker-btn--ok";
-    okBtn.textContent = "OK";
-
-    function close() {
-        clearInterval(refreshInterval);
-        overlay.classList.remove("time-picker-overlay--visible");
-        setTimeout(() => overlay.remove(), 200);
-    }
-
-    cancelBtn.addEventListener("click", close);
-
-    okBtn.addEventListener("click", () => {
-        const selected = slotsWrap.querySelector(".time-picker-slot--selected");
-        if (selected) {
-            timeInputEl.dataset.value24 = selected.dataset.value24;
-            timeInputEl.value = selected.dataset.label;
-            clearCardError("schedule-card");
-        }
-        close();
-    });
-
-    overlay.addEventListener("click", (e) => {
-        if (e.target === overlay) close();
-    });
-
-    actions.append(cancelBtn, okBtn);
-    card.append(title, slotsWrap, actions);
-    overlay.appendChild(card);
-    panelEl.appendChild(overlay);
-
-    requestAnimationFrame(() => overlay.classList.add("time-picker-overlay--visible"));
-}
+// openCustomTimePicker deprecated in favor of unified picker
 
 // ── Pre-fill location card once GPS address is ready ──────────────────
 function prefillLocationField() {
-    const locInput  = document.getElementById("loc-input");
-    const statusEl  = document.getElementById("loc-status");
+    const locInput = document.getElementById("loc-input");
+    const statusEl = document.getElementById("loc-status");
     if (!locInput || !statusEl) return;
 
     if (detectedLocation) {
@@ -2174,12 +2171,12 @@ function initLocationAutocomplete() {
 }
 
 // Called by Google Maps script callback once API is loaded.
-window.onGoogleMapsReady = function() {
+window.onGoogleMapsReady = function () {
     initLocationAutocomplete();
 };
 
 // ── Submit schedule ───────────────────────────────────────────────────
-window.submitSchedule = function() {
+window.submitSchedule = function () {
     const loc = document.getElementById("loc-input")?.value.trim();
     const dateEl = document.getElementById("date-input");
     const timeEl = document.getElementById("time-input");
@@ -2201,6 +2198,8 @@ window.submitSchedule = function() {
         if (slotMinutes < nowMinutes + minLeadMinutes) {
             showCardError("schedule-card", "The selected time just became unavailable. Please select a later time.");
             timeEl.value = "";
+            const slotDisplay = document.getElementById("combined-slot-input");
+            if (slotDisplay) slotDisplay.value = "";
             delete timeEl.dataset.value24;
             return;
         }
@@ -2259,24 +2258,24 @@ function renderContactCard() {
 
         <label class="booking-label">Email Address</label>
         <input type="email" id="c-email" class="booking-input" placeholder="you@example.com (optional)" autocomplete="email">
-        <p class="email-hint">Tip: Using Gmail lets us sync your booking to Google Calendar.</p>
+        <p class="email-hint" style="font-size:9px;color:#9CA3AF;margin:2px 0 6px;line-height:1.3;">Sync with Google Calendar via Gmail.</p>
 
         <label class="booking-label" id="rel-label">Relation to Patient <span class="booking-required">*</span></label>
-        <select id="c-relation" class="booking-input">
-            <option value="">Select relation…</option>
-            <option value="wife">Wife</option>
-            <option value="family">Family Member</option>
-            <option value="other">Other</option>
-        </select>
+        <div id="c-relation-container" class="relation-chips-container">
+            <div class="relation-chip" data-value="wife">Wife</div>
+            <div class="relation-chip" data-value="family">Family</div>
+            <div class="relation-chip" data-value="other">Other</div>
+        </div>
+        <input type="hidden" id="c-relation" value="">
 
         <label class="self-check-label">
             <input type="checkbox" id="c-self" onchange="toggleSelfBooking(this)">
-            <span>Booking for myself</span>
+            <span>For Myself</span>
         </label>
 
         <button onclick="submitContact()" class="booking-btn">Confirm Booking</button>
     `;
-    messagesContainer.appendChild(card);
+    appendBotCard(card);
     const nameEl = document.getElementById("c-name");
     const phoneEl = document.getElementById("c-phone");
     const emailEl = document.getElementById("c-email");
@@ -2285,7 +2284,31 @@ function renderContactCard() {
     if (nameEl) nameEl.value = bookingState.name || "";
     if (phoneEl) phoneEl.value = bookingState.phone || "";
     if (emailEl) emailEl.value = bookingState.email || "";
-    if (relationEl) relationEl.value = bookingState.relation || "";
+    // Initial value setup
+    if (bookingState.relation && bookingState.relation !== "self") {
+        const input = document.getElementById("c-relation");
+        if (input) input.value = bookingState.relation;
+        const chips = card.querySelectorAll(".relation-chip");
+        chips.forEach(c => {
+            if (c.dataset.value === bookingState.relation) c.classList.add("is-active");
+        });
+    }
+
+    // Chip selection logic
+    const chips = card.querySelectorAll(".relation-chip");
+    const relationInput = document.getElementById("c-relation");
+    chips.forEach(chip => {
+        const handleSelect = (e) => {
+            if (e) { e.preventDefault(); e.stopPropagation(); }
+            chips.forEach(c => c.classList.remove("is-active"));
+            chip.classList.add("is-active");
+            if (relationInput) relationInput.value = chip.dataset.value;
+            clearCardError("contact-card");
+        };
+        chip.addEventListener("pointerup", handleSelect);
+        chip.addEventListener("click", (e) => e.preventDefault());
+    });
+
     if (selfEl && bookingState.forSelf) {
         selfEl.checked = true;
         window.toggleSelfBooking(selfEl);
@@ -2293,30 +2316,35 @@ function renderContactCard() {
     scrollToBottomIfNearBottom();
 }
 
-window.toggleSelfBooking = function(checkbox) {
+window.toggleSelfBooking = function (checkbox) {
     const relLabel = document.getElementById("rel-label");
-    const relSelect = document.getElementById("c-relation");
+    const relContainer = document.getElementById("c-relation-container");
+    const relInput = document.getElementById("c-relation");
     if (checkbox.checked) {
-        relLabel.style.display = "none";
-        relSelect.style.display = "none";
-        relSelect.value = "self";
+        if (relLabel) relLabel.style.display = "none";
+        if (relContainer) relContainer.style.display = "none";
+        if (relInput) relInput.value = "self";
     } else {
-        relLabel.style.display = "";
-        relSelect.style.display = "";
-        relSelect.value = "";
+        if (relLabel) relLabel.style.display = "";
+        if (relContainer) relContainer.style.display = "flex";
+        if (relInput) relInput.value = "";
+        // Clear active chips when re-enabling
+        if (relContainer) {
+            relContainer.querySelectorAll(".relation-chip").forEach(c => c.classList.remove("is-active"));
+        }
     }
 };
 
 // ── Submit contact & Ask for Description ──────────────────────────────
-window.submitContact = async function() {
-    const name    = document.getElementById("c-name")?.value.trim();
+window.submitContact = async function () {
+    const name = document.getElementById("c-name")?.value.trim();
     const phoneRaw = document.getElementById("c-phone")?.value.trim();
-    const email   = document.getElementById("c-email")?.value.trim();
-    const self_   = document.getElementById("c-self")?.checked;
-    const relation= self_ ? "self" : document.getElementById("c-relation")?.value;
+    const email = document.getElementById("c-email")?.value.trim();
+    const self_ = document.getElementById("c-self")?.checked;
+    const relation = self_ ? "self" : document.getElementById("c-relation")?.value;
     const normalizedPhone = normalizeBookingPhone(phoneRaw);
 
-    if (!name)   { showCardError("contact-card", "Please enter your Full Name."); return; }
+    if (!name) { showCardError("contact-card", "Please enter your Full Name."); return; }
     if (/\d/.test(name)) {
         showCardError("contact-card", "Full name should not contain numbers.");
         return;
@@ -2346,7 +2374,7 @@ window.submitContact = async function() {
 
     // Ask for description to complete the booking (question varies by service)
     bookingState.awaitingDescription = true;
-    
+
     setTimeout(async () => {
         const prompt = getDescriptionPromptForService(bookingState.service);
         await appendBotMessage(prompt);
@@ -2446,8 +2474,7 @@ function renderReviewBookingCard() {
             <button type="button" onclick="needToChangeBooking()" class="booking-btn" style="background:#F3F4F6;color:#1F2937;box-shadow:none;">Need to change</button>
         </div>
     `;
-    messagesContainer.appendChild(card);
-    scrollToRevealMessage(card);
+    appendBotCard(card);
 }
 
 window.confirmBookingSubmit = function () {
@@ -2460,24 +2487,29 @@ window.confirmBookingSubmit = function () {
     finalizeBooking();
 };
 
-window.needToChangeBooking = function () {
+window.needToChangeBooking = async function () {
     const card = document.getElementById("review-booking-card");
     if (card) card.remove();
-    appendBotMessage("What would you like to change?");
+
+    // Await ensures the question bubble appears BEFORE the options row
+    await appendBotMessage("What would you like to change?");
+
     const row = document.createElement("div");
-    row.className = "options-container chips-container";
+    row.className = "welcome-options-secondary fade-in"; // Use standardized grid
     row.id = "review-change-options";
+
     [
-        { label: "Schedule (Date, Time, Location)", value: "schedule" },
-        { label: "Contact Details", value: "contact" },
+        { label: "Schedule", value: "schedule" },
+        { label: "Contact", value: "contact" },
         { label: "Description", value: "description" },
     ].forEach(({ label, value }) => {
         const btn = document.createElement("button");
         btn.type = "button";
-        btn.className = "option-btn option-btn--review-change fade-in";
+        btn.className = "option-btn option-btn--welcome-secondary option-btn--review-change";
+        btn.dataset.changeValue = value;
         btn.textContent = label;
         btn.addEventListener("click", () => {
-            document.getElementById("review-change-options")?.remove();
+            document.getElementById("review-change-options")?.closest('.message').remove();
             if (value === "schedule") {
                 bookingState.editingFromReviewTarget = "schedule";
                 renderScheduleCard();
@@ -2495,8 +2527,9 @@ window.needToChangeBooking = function () {
         });
         row.appendChild(btn);
     });
-    messagesContainer.appendChild(row);
-    scrollToShowOptions(row);
+
+    // Standardized with logo and correct parallel placement
+    appendBotCard(row);
 };
 
 // ── Finalize Booking after Description ────────────────────────────────
@@ -2516,8 +2549,9 @@ async function finalizeBooking() {
         appointment_date: (bookingPayload && bookingPayload.appointment_date) || bookingState.date,
         appointment_time: (bookingPayload && bookingPayload.appointment_time) || bookingState.time,
         location: (bookingPayload && bookingPayload.location) || bookingState.location || null,
+        description: bookingState.description || null,
     };
-    const NODE_BOOKING_URL = "http://localhost:5000/api/book";
+    const NODE_BOOKING_URL = makeApiUrl(NODE_API_BASE, "/api/book");
     console.log('[Mothrly] calling /api/book with:', bookingData);
 
     try {
@@ -2537,7 +2571,7 @@ async function finalizeBooking() {
             const bookingId = result.bookingId;
             console.log("Real Booking ID:", bookingId);
             renderConfirmation({
-                bookingId:      bookingId,
+                bookingId: bookingId,
                 payment_status: result.booking?.payment_status || 'pending',
             });
         } else {
@@ -2550,7 +2584,10 @@ async function finalizeBooking() {
         const apiName = "Node.js (5000)";
         console.error(`[Booking] ${apiName} fetch failed:`, { url: makeApiUrl(NODE_API_BASE, "/api/book"), error: err });
         showTyping(false);
-        appendBotMessage(`❌ Could not reach the ${apiName} server. Please ensure it is running and try again.`);
+        // Keep bookingPayload intact so the user can retry without re-entering details
+        appendBotMessage(
+            `❌ Could not reach the ${apiName} server. Please ensure it is running, then tap **Confirm Booking** to try again.`
+        );
     }
 
     setInputEnabled(true);
@@ -2563,11 +2600,12 @@ function renderConfirmation(booking) {
 
     // Prefer backend data; fall back to local bookingState
     const b = latestBooking || {};
-    const displayId      = booking.bookingId || b.booking_id || "—";
-    const displayName    = b.name             || bookingState.name     || "—";
-    const displayService = formatServiceForDisplay(b.service_provider  || bookingState.service);
-    const displayLoc     = b.location         || bookingState.location || "—";
-    const displayPayment = b.payment_status   || booking.payment_status || "Pending";
+    const displayId = booking.bookingId || b.booking_id || "—";
+    const displayName = b.name || bookingState.name || "—";
+    const displayService = formatServiceForDisplay(b.service_type || bookingState.service);
+    const displayProvider = b.provider_name || "Will be assigned shortly";
+    const displayLoc = b.location || bookingState.location || "—";
+    const displayPayment = b.payment_status || booking.payment_status || "Pending";
 
     // Date + time: prefer backend ISO strings, fall back to bookingState
     const rawDate = b.date || bookingState.date || "";
@@ -2637,7 +2675,7 @@ function renderConfirmation(booking) {
         <p style="text-align:center;margin-top:16px;font-size:13px;color:#9CA3AF;">Thank you for choosing Motherly</p>
         <button onclick="resetChat()" class="booking-btn booking-btn--restart" style="margin-top:12px;background:#FAF5F5;color:#1F2937;border:1px solid #D1D5DB;box-shadow:none;">Start New Booking</button>
     `;
-    messagesContainer.appendChild(card);
+    appendBotCard(card, true);
     scrollToBottomIfNearBottom();
 }
 
@@ -2651,6 +2689,38 @@ async function appendBotMessage(text) {
     await appendMessage(text, "bot");
 }
 
+/**
+ * Standardized way to append a bot-sent interactive card with the avatar logo.
+ */
+function appendBotCard(cardElement) {
+    const lastMsg = messagesContainer.lastElementChild;
+    const isContinuation = lastMsg && lastMsg.classList.contains("bot-message");
+    const timestamp = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+
+    const row = document.createElement("div");
+    row.className = "message bot-message";
+
+    // Only show avatar if this is NOT a continuation of a bot turn
+    const avatarHtml = isContinuation
+        ? `<div class="message-avatar-box" style="background:transparent;border:none;"></div>`
+        : `<div class="message-avatar-box" style="background:#fff;border:1px solid #E5E7EB;overflow:hidden;"><img src="/static/motherly_logo_v3.png" style="width:100%;height:100%;object-fit:cover;padding:0;"></div>`;
+
+    row.innerHTML = avatarHtml;
+
+    // Create a special bubble-like wrapper for the card to house the timestamp
+    const cardBubble = document.createElement("div");
+    cardBubble.className = "message-bubble";
+    cardBubble.style.padding = "0"; // Cards handle their own internal padding
+    cardBubble.style.background = "none";
+    cardBubble.style.border = "none";
+    cardBubble.style.boxShadow = "none";
+
+    cardBubble.appendChild(cardElement);
+    row.appendChild(cardBubble);
+    messagesContainer.appendChild(row);
+    scrollToRevealMessage(row);
+}
+
 async function appendMessage(text, sender, isWelcome = false) {
     let displayText = text;
     let options = [];
@@ -2659,7 +2729,7 @@ async function appendMessage(text, sender, isWelcome = false) {
         const parsed = parseOptionsFromText(text);
         displayText = parsed.body || text;
         options = parsed.options;
-        
+
         // Auto-stop microphone when bot starts speaking/typing to prevent feedback echo
         if (typeof stopVoiceInput === "function") stopVoiceInput();
         if (userInput) userInput.value = "";
@@ -2678,14 +2748,22 @@ async function appendMessage(text, sender, isWelcome = false) {
         setMeenaTyping(false);
     }
 
+    const lastMsg = messagesContainer.lastElementChild;
+    const isContinuation = lastMsg && lastMsg.classList.contains("bot-message");
+    const timestamp = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+
     const row = document.createElement("div");
     row.className = `message ${sender === "bot" ? "bot-message" : "user-message"}`;
 
-    const avatarHtml = sender === "bot"
-        ? `<div class="message-avatar-box" style="background:#fff;border:1px solid #E5E7EB;overflow:hidden;"><img src="/static/motherly_logo_v3.png" style="width:100%;height:100%;object-fit:cover;padding:0;"></div>`
-        : ``;
+    let avatarHtml = "";
+    if (sender === "bot") {
+        // Only show avatar if this is the start of a bot turn
+        avatarHtml = isContinuation
+            ? `<div class="message-avatar-box" style="background:transparent;border:none;"></div>`
+            : `<div class="message-avatar-box" style="background:#fff;border:1px solid #E5E7EB;overflow:hidden;"><img src="/static/motherly_logo_v3.png" style="width:100%;height:100%;object-fit:cover;padding:0;"></div>`;
+    }
 
-    row.innerHTML = `${avatarHtml}<div class="message-bubble"><p></p></div>`;
+    row.innerHTML = `${avatarHtml}<div class="message-bubble"><p></p><div class="message-timestamp">${timestamp}</div></div>`;
     const bubbleContent = row.querySelector(".message-bubble p");
 
     if (sender === "bot") {
@@ -2739,7 +2817,10 @@ function formatMessageContent(text) {
         .replace(/^#{1,3}\s+(.*)$/gim, "<strong>$1</strong>")
         .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
         .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-        .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" style="color:#9B1A52;font-weight:600;text-decoration:underline;">$1</a>')
+        .replace(/\[(.*?)\]\((.*?)\)/g, (_, label, url) => {
+            const safe = /^(https?:|tel:|mailto:)/i.test(url.trim()) ? url : '#';
+            return `<a href="${safe}" target="_blank" rel="noopener noreferrer" style="color:#9B1A52;font-weight:600;text-decoration:underline;">${label}</a>`;
+        })
         .replace(/\n/g, "<br>");
 }
 
@@ -2873,7 +2954,7 @@ function removeAllChips() {
 
 function showTyping(visible) {
     typingIndicator.style.display = visible ? "flex" : "none";
-    
+
     // Disable mic button while bot is typing to prevent accidental voice input/echoes
     if (micBtn) {
         micBtn.disabled = visible;
@@ -2973,7 +3054,7 @@ function formatTime(value) {
     const [h, m] = value.split(':').map(Number);
     const period = h < 12 ? 'AM' : 'PM';
     const displayH = h % 12 === 0 ? 12 : h % 12;
-    return `${displayH}:${String(m).padStart(2,'0')} ${period}`;
+    return `${displayH}:${String(m).padStart(2, '0')} ${period}`;
 }
 
 function formatChildAgeLabel(value) {
@@ -3110,7 +3191,7 @@ function stopVoiceInput() {
         micBtn.title = "Voice input";
     }
     if (speechRecognition) {
-        try { speechRecognition.abort(); } catch {}
+        try { speechRecognition.abort(); } catch { }
         speechRecognition = null;
     }
     // Crucial: ALWAYS re-enable UI after voice phase ends
@@ -3135,7 +3216,7 @@ function showToast(msg, duration = 3000) {
 function showSecureContextWarning() {
     // Avoid double banners
     if (document.querySelector(".secure-context-banner")) return;
-    
+
     const banner = document.createElement("div");
     banner.className = "secure-context-banner";
     banner.style.cssText = "background:#FEF2F2; color:#991B1B; padding:12px; font-size:11px; border-bottom:1px solid #FEE2E2; display:flex; gap:8px; line-height:1.3;";
@@ -3153,7 +3234,7 @@ function renderPermissionRequestCard() {
     const isSecure = window.isSecureContext;
     const card = document.createElement("div");
     card.className = "permission-card fade-in";
-    
+
     let insecureNotice = "";
     if (!isSecure) {
         insecureNotice = `
@@ -3174,7 +3255,7 @@ function renderPermissionRequestCard() {
         </div>
         <button class="permission-card__btn">${isSecure ? 'Connect Now' : 'I have enabled flags'}</button>
     `;
-    
+
     const btn = card.querySelector(".permission-card__btn");
     btn.onclick = () => {
         triggerPermissionPrompts();
@@ -3186,13 +3267,12 @@ function renderPermissionRequestCard() {
         }
     };
 
-    messagesContainer.appendChild(card);
-    scrollToRevealMessage(card);
+    appendBotCard(card);
 }
 
 async function triggerPermissionPrompts() {
     showToast("Requesting permissions…");
-    
+
     // 1. Geolocation
     if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(() => {
@@ -3209,7 +3289,7 @@ async function triggerPermissionPrompts() {
             const dummyRec = new SpeechRecognition();
             dummyRec.onstart = () => {
                 setTimeout(() => {
-                    try { dummyRec.abort(); } catch {}
+                    try { dummyRec.abort(); } catch { }
                 }, 100);
             };
             dummyRec.start();
@@ -3228,69 +3308,7 @@ function isMobileOrTablet() {
 }
 
 // ── Circular Native/System Time Picker for Mobile ────────────────────
-function openMdTimePicker(timeInputEl) {
-    let native = document.getElementById("native-time-input");
-    if (!native) {
-        native = document.createElement("input");
-        native.type = "time";
-        native.id = "native-time-input";
-        native.setAttribute("aria-hidden", "true");
-        // Position over the time input so the browser considers it user-activated
-        native.style.cssText = "position:fixed;top:50%;left:50%;width:1px;height:1px;opacity:0.01;pointer-events:none;z-index:-1;";
-        document.body.appendChild(native);
-    }
-    
-    native.onchange = () => {
-        const hhmm = native.value; // "HH:mm"
-        if (hhmm) {
-            const [h, m] = hhmm.split(":").map(Number);
-            const period = h >= 12 ? "PM" : "AM";
-            const displayH = h % 12 || 12;
-            const label = `${displayH}:${String(m).padStart(2, '0')} ${period}`;
-            
-            // ── Mobile validation ──
-            const dateEl = document.getElementById("date-input");
-            const dateIso = dateEl?.dataset?.iso || "";
-            const now = new Date();
-            const todayIso = formatIsoDate(now);
-            if (dateIso === todayIso) {
-                const slotMinutes = (h * 60) + m;
-                const nowMinutes = (now.getHours() * 60) + now.getMinutes();
-                if (slotMinutes < nowMinutes + 30) {
-                    showCardError("schedule-card", "Please select a future time (at least 30 mins from now).");
-                    native.value = "";
-                    return;
-                }
-            }
-
-            timeInputEl.dataset.value24 = hhmm;
-            timeInputEl.value = label;
-            
-            clearCardError("schedule-card");
-            timeInputEl.dispatchEvent(new Event('input', { bubbles: true }));
-            timeInputEl.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-    };
-    
-    // Set current value if it exists
-    if (timeInputEl.dataset.value24) {
-        native.value = timeInputEl.dataset.value24;
-    }
-
-    // Focus first, then trigger picker in the next frame — this ensures
-    // the browser sees it as a direct user gesture continuation
-    native.focus({ preventScroll: true });
-    requestAnimationFrame(() => {
-        if (typeof native.showPicker === 'function') {
-            try {
-                native.showPicker();
-                return;
-            } catch (_) { /* fall through */ }
-        }
-        // Fallback: simulate a click
-        native.click();
-    });
-}
+// openMdTimePicker implementation removed in favor of unified grouped picker
 
 // ── Reschedule & Cancellation Flow ──────────────────────────────────
 async function startRescheduleFlow() {
@@ -3311,7 +3329,7 @@ async function fetchAndRenderBookingById(bookingId) {
         const b = data.booking;
         await appendBotMessage(`I found your booking **${bookingId}**:`);
         renderHistoryCard(b, true); // Reusing history card for display
-        
+
     } catch (err) {
         showTyping(false);
         await appendBotMessage(`❌ Sorry, I couldn't find a booking with ID **${bookingId}**. Please check your ID and try again.`);
@@ -3322,14 +3340,14 @@ function renderHistoryCard(b, isCurrent = true) {
     const card = document.createElement("div");
     card.className = "booking-card history-card fade-in";
     if (!isCurrent) card.style.opacity = "0.85"; // Dim finished bookings slightly
-    
+
     // In PostgreSQL, DATE comes back as "YYYY-MM-DD", but let's be safe
     const dateStr = (b.date && b.date.includes('T')) ? b.date.split('T')[0] : b.date;
     const formattedDate = dateStr
         ? new Date(dateStr + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })
         : "—";
     const formattedTime = b.time ? formatTime(b.time) : "—";
-    
+
     card.innerHTML = `
         <div class="booking-card-title" style="font-size:13px; color:#9B1A52; display:flex; align-items:center; justify-content:space-between;">
             <div style="display:flex; align-items:center; gap:6px;">
@@ -3345,16 +3363,15 @@ function renderHistoryCard(b, isCurrent = true) {
         </div>
         ${isCurrent ? `
         <div style="display:flex; gap:8px; margin-top:12px;">
-            <button class="booking-btn" style="padding:8px 14px; font-size:11px; flex:1;" onclick="initiateReschedule('${b.booking_id}')">Reschedule</button>
-            <button class="booking-btn" style="padding:8px 14px; font-size:11px; flex:1; background:#F3F4F6; color:#1F2937; box-shadow:none;" onclick="initiateCancel('${b.booking_id}')">Cancel</button>
+            <button class="booking-btn booking-action-btn" data-action="reschedule" data-booking-id="${b.booking_id.replace(/"/g, '&quot;')}" style="padding:8px 14px; font-size:11px; flex:1;">Reschedule</button>
+            <button class="booking-btn booking-action-btn" data-action="cancel"     data-booking-id="${b.booking_id.replace(/"/g, '&quot;')}" style="padding:8px 14px; font-size:11px; flex:1; background:#F3F4F6; color:#1F2937; box-shadow:none;">Cancel</button>
         </div>
         ` : ""}
     `;
-    messagesContainer.appendChild(card);
-    scrollToRevealMessage(card);
+    appendBotCard(card);
 }
 
-window.initiateReschedule = function(bookingId) {
+window.initiateReschedule = function (bookingId) {
     bookingState.reschedulingBookingId = bookingId;
     appendBotMessage(`Sure! Let's pick a new date and time for booking **${bookingId}**.`);
     renderScheduleCard();
@@ -3366,7 +3383,7 @@ async function handleRescheduleSubmit() {
         date: bookingState.date,
         time: bookingState.time
     };
-    
+
     showTyping(true);
     try {
         const resp = await apiFetch(NODE_API_BASE, `/api/reschedule/${bookingId}`, {
@@ -3378,7 +3395,7 @@ async function handleRescheduleSubmit() {
         showTyping(false);
 
         if (resp.ok) {
-            const formattedDate = new Date(payload.date + "T00:00:00").toLocaleDateString("en-IN", {day:"numeric", month:"long"});
+            const formattedDate = new Date(payload.date + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "long" });
             await appendBotMessage(`✅ Success! Your booking **${bookingId}** has been rescheduled to **${formattedDate}** at **${formatTime(payload.time)}**.`);
             bookingState.reschedulingBookingId = null;
         } else {
@@ -3390,9 +3407,9 @@ async function handleRescheduleSubmit() {
     }
 }
 
-window.initiateCancel = async function(bookingId) {
+window.initiateCancel = async function (bookingId) {
     if (!confirm(`Are you sure you want to cancel booking ${bookingId}?`)) return;
-    
+
     showTyping(true);
     try {
         const resp = await apiFetch(NODE_API_BASE, `/api/cancel/${bookingId}`, { method: "DELETE" });
@@ -3407,5 +3424,17 @@ window.initiateCancel = async function(bookingId) {
         showTyping(false);
         appendBotMessage("❌ Error communicating with server.");
     }
-}
+};
+
+// Delegated listener for booking action buttons (reschedule / cancel).
+// Uses data attributes instead of inline onclick to prevent XSS.
+document.addEventListener("click", function (e) {
+    const btn = e.target.closest(".booking-action-btn");
+    if (!btn) return;
+    const action = btn.dataset.action;
+    const id     = btn.dataset.bookingId;
+    if (!id) return;
+    if (action === "reschedule") window.initiateReschedule(id);
+    else if (action === "cancel") window.initiateCancel(id);
+});
 

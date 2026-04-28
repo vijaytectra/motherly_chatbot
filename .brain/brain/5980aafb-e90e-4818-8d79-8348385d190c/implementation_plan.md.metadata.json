@@ -1,0 +1,7 @@
+{
+  "artifactType": "ARTIFACT_TYPE_IMPLEMENTATION_PLAN",
+  "summary": "Plan to isolate memory storage by migrating logs and artifacts to project-specific .brain directories.",
+  "updatedAt": "2026-04-11T10:29:20.303007400Z",
+  "version": "3",
+  "requestFeedback": true
+}

@@ -1,0 +1,6 @@
+{
+  "artifactType": "ARTIFACT_TYPE_TASK",
+  "summary": "Tracking the migration of memory storage to project-specific isolated directories.",
+  "updatedAt": "2026-04-11T10:30:28.699138200Z",
+  "version": "4"
+}

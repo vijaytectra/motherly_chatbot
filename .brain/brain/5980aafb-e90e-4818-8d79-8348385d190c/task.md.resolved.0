@@ -1,0 +1,5 @@
+- [ ] Revert reset to the correct Motherly Chat base (`5fd01c8`)
+- [ ] Re-apply morning UI fixes from `stash@{0}`
+- [ ] Verify backend `main.py` is the Motherly version
+- [ ] Verify frontend `mothrly.css` and `script.js` are restored
+- [ ] Start the backend server to confirm stability

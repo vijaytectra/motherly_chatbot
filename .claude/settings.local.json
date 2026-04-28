@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n \"btn-reset\\\\|circular arrow\\\\|reload.*icon\\\\|refresh.*icon\" \"n:\\\\tectra tech works\\\\Mothrly Chat\\\\frontend\"/*.html)",
+      "Bash(grep -v \"//\")",
+      "Bash(python3)",
+      "Bash(awk '/INSERT INTO bookings/,/RETURNING/' \"/n/tectra tech works/Mothrly Chat/node-backend/src/controllers/bookingController.js\")",
+      "Bash(grep -n \"\\\\$[0-9]\" \"/n/tectra tech works/Mothrly Chat/node-backend/src/controllers/bookingController.js\")",
+      "Bash(grep -E \"^\\\\\\\\s+\\(booking_id|name|customer_phone|phone|email|description|service_|relationship|payment_status|date|time|location\\)\" \"/n/tectra tech works/Mothrly Chat/node-backend/src/db/schema.sql\")"
+    ]
+  }
+}

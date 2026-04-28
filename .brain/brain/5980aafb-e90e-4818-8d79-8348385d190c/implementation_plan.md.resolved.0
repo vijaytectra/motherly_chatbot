@@ -1,0 +1,26 @@
+# Restore Mothrly Chat Morning State
+
+The user accidentally reset their workspace to an older commit of the `MediBot Pro` project (`bfb8116`), losing the `Mothrly Chat` codebase and today's UI improvements. I will restore the state to this morning's version of Mothrly Chat.
+
+## Current Problem
+- User is on `bfb8116` (MediBot Pro codebase from April 8).
+- User wants "Mothrly Chat" (Motherly Chatbot codebase from April 11).
+- Today's work (typography, time picker fix) is currently stored in `stash@{0}`.
+
+## Proposed Changes
+
+### Revert Reset
+- Use `git reset --hard 5fd01c8` to return to the correct `Motherly Chat` base.
+- This will restore the `main.py` and other backend files to their "Motherly" versions.
+
+### Apply Morning Work
+- Use `git stash pop` to apply the UI fixes (typography, Inter font, time picker initialization) made this morning.
+
+## Verification Plan
+
+### Automated Tests
+- `python backend/main.py`: Verify it starts without the "MediBot Pro" banner and serving the correctly named static files.
+- Check `frontend/index.html` and `frontend/script.js` for the typography changes from this morning.
+
+### Manual Verification
+- Ask the user to check if the time picker and typography look correct (as they did this morning).

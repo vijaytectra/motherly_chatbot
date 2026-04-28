@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS bookings (
 
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(20);
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS service_type VARCHAR(100);
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS provider_name VARCHAR(100) DEFAULT 'no preference';
 
 CREATE INDEX IF NOT EXISTS idx_bookings_booking_id ON bookings (booking_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_created_at ON bookings (created_at DESC);

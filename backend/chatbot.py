@@ -5,29 +5,58 @@ Uses OpenAI GPT-4o mini to generate friendly, multilingual responses
 about the Motherly maternal healthcare platform.
 """
 
+import logging
 import os
 import re
-from openai import OpenAI
+import threading
+import time as _time
+from openai import OpenAI, APIConnectionError, RateLimitError
 from dotenv import load_dotenv
 
 # Load environment variables from .env file (if present)
 load_dotenv()
 
+logger = logging.getLogger("mothrly.chatbot")
+
 _openai_client = None
+_openai_client_lock = threading.Lock()
 
 
 def get_openai_client():
     """
-    Lazy OpenAI client. Returns None if OPENAI_API_KEY is missing so callers can
-    fall back gracefully without crashing on import.
+    Thread-safe lazy OpenAI client. Returns None if OPENAI_API_KEY is missing
+    so callers can fall back gracefully without crashing on import.
     """
     global _openai_client
     key = (os.getenv("OPENAI_API_KEY") or "").strip()
     if not key:
         return None
     if _openai_client is None:
-        _openai_client = OpenAI(api_key=key)
+        with _openai_client_lock:
+            if _openai_client is None:  # double-checked locking
+                _openai_client = OpenAI(api_key=key)
     return _openai_client
+
+
+def _call_openai_with_retry(client, max_attempts: int = 3, **kwargs):
+    """
+    Call client.chat.completions.create with up to max_attempts retries
+    on transient errors (rate limits, connection issues).
+    Raises the last exception if all attempts fail.
+    """
+    last_err = None
+    for attempt in range(max_attempts):
+        try:
+            return client.chat.completions.create(**kwargs)
+        except RateLimitError as exc:
+            last_err = exc
+            if attempt < max_attempts - 1:
+                _time.sleep(2 ** attempt)
+        except APIConnectionError as exc:
+            last_err = exc
+            if attempt < max_attempts - 1:
+                _time.sleep(1)
+    raise last_err
 
 # System prompt that defines Mothrly Assistant's personality and behaviour
 SYSTEM_PROMPT = """
@@ -376,7 +405,7 @@ When a user opens the chat say:
 
 Hi,
 I'm Mothrly Assistant. I can help you book a doula or consultation.
-What do you need help with today?
+How can i help you today?
 
 Options:
 • Book Doula
@@ -385,6 +414,8 @@ Options:
 • Book Lactation Consultant
 • Prenatal Nutrition
 • Reschedule Booking
+
+Today's date: <CURRENT_DATE>
 """.strip()
 
 
@@ -727,26 +758,29 @@ def get_chat_response(user_message: str, history: Optional[List[Dict[str, str]]]
 
     client = get_openai_client()
     if client is None:
-        print(
-            "[WARN] OPENAI_API_KEY not set — using intent fallback for /chat. "
+        logger.warning(
+            "OPENAI_API_KEY not set — using intent fallback for /chat. "
             "Set OPENAI_API_KEY in .env for full LLM replies."
         )
         return _fallback_chat_reply(user_message, history), 0
 
     try:
-        response = client.chat.completions.create(
+        response = _call_openai_with_retry(
+            client,
             model="gpt-4o-mini",
             messages=messages,
             temperature=0.7,
             max_tokens=400,
         )
-
         reply = response.choices[0].message.content
         tokens_used = response.usage.total_tokens if response.usage else 0
         return reply, tokens_used
 
-    except Exception as e:
-        print(f"[ERROR] OpenAI API call failed: {e}")
+    except (RateLimitError, APIConnectionError) as exc:
+        logger.error("OpenAI transient error in get_chat_response: %s", exc)
+        return _fallback_chat_reply(user_message, history), 0
+    except Exception as exc:
+        logger.exception("OpenAI API call failed in get_chat_response: %s", exc)
         return _fallback_chat_reply(user_message, history), 0
 
 
@@ -984,7 +1018,7 @@ def _heuristic_invalid_description(description: str, service: str) -> Tuple[bool
     # Irrelevant/off-topic generic text: reject with a gentle redirect.
     if len(tokens) <= 8:
         return True, (
-            "Got it 🙂 I just need a bit more information about your care needs so I can match you with the right support. "
+            "I just need a bit more information about your care needs so I can match you with the right support. "
             "Could you tell me what kind of help you're looking for?"
         )
 
@@ -1039,7 +1073,8 @@ Reply with SWITCH:..., VALID, or INVALID: ... per your instructions."""
         return True, "", None
 
     try:
-        response = client.chat.completions.create(
+        response = _call_openai_with_retry(
+            client,
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": VALIDATOR_SYSTEM},
@@ -1051,10 +1086,12 @@ Reply with SWITCH:..., VALID, or INVALID: ... per your instructions."""
         content = (response.choices[0].message.content or "").strip()
         valid, msg, redir = _parse_validator_llm_content(content, service)
         return valid, msg, redir
-    except Exception as e:
-        print(f"[ERROR] validate_booking_description failed: {e}")
-        # Fall back to local heuristics only; otherwise allow to avoid blocking genuine users.
+    except (RateLimitError, APIConnectionError) as exc:
+        logger.error("OpenAI transient error in validate_booking_description: %s", exc)
         invalid, invalid_msg = _heuristic_invalid_description(description, service)
-        if invalid:
-            return False, invalid_msg, None
-        return True, "", None
+        return (False, invalid_msg, None) if invalid else (True, "", None)
+    except Exception as exc:
+        logger.exception("validate_booking_description failed: %s", exc)
+        # Fall back to local heuristics; allow to avoid blocking genuine users.
+        invalid, invalid_msg = _heuristic_invalid_description(description, service)
+        return (False, invalid_msg, None) if invalid else (True, "", None)

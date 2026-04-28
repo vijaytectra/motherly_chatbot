@@ -7,19 +7,29 @@ Endpoints:
     GET  /       — serves the demo chat interface (static files).
 """
 
+import logging
 import os
 import random
 import string
 import time
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 
 from chatbot import get_chat_response, validate_booking_description
+
+# ── Logging ──────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%SZ",
+)
+logger = logging.getLogger("mothrly")
 
 # ── FastAPI app ──────────────────────────────────────────────────────
 app = FastAPI(
@@ -28,7 +38,8 @@ app = FastAPI(
     version="0.2.0",
 )
 
-# ── CORS (allow everything for development) ─────────────────────────
+# ── CORS (allow all origins for development) ─────────────────────────
+# NOTE: Restrict allow_origins to specific domains before going to production.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -43,11 +54,12 @@ async def log_requests(request: Request, call_next):
     started = time.perf_counter()
     response = await call_next(request)
     elapsed_ms = (time.perf_counter() - started) * 1000
-    print(
-        f"[{datetime.utcnow().isoformat()}Z] "
-        f"{request.method} {request.url.path} -> {response.status_code} ({elapsed_ms:.1f}ms)"
+    logger.info(
+        "%s %s -> %d (%.1fms)",
+        request.method, request.url.path, response.status_code, elapsed_ms,
     )
     return response
+
 
 # ── In-memory booking store (replace with a real DB in production) ───
 bookings: Dict[str, dict] = {}
@@ -58,15 +70,18 @@ class MessageItem(BaseModel):
     role: str
     content: str
 
+
 class ChatRequest(BaseModel):
     """Body for the /chat endpoint."""
     message: str
-    history: Optional[List[MessageItem]] = []
+    history: Optional[List[MessageItem]] = None  # None avoids shared mutable default
+
 
 class ChatResponse(BaseModel):
     """Response from the /chat endpoint."""
     response: str
     tokens_used: int
+
 
 class BookingRequest(BaseModel):
     """Body for the /book endpoint."""
@@ -82,6 +97,7 @@ class BookingRequest(BaseModel):
     description: Optional[str] = None
     child_age_range: Optional[str] = None  # Nanny: e.g. "0-1", "1-3", "3+"
     child_names: Optional[str] = None      # Nanny: child(ren)'s name(s)
+
 
 class BookingResponse(BaseModel):
     """Response from the /book endpoint."""
@@ -115,19 +131,17 @@ def generate_booking_id() -> str:
     digits = "".join(random.choices(string.digits, k=6))
     return f"MTH-{digits}"
 
-def send_whatsapp_mock(booking: dict):
-    """
-    Mock trigger for WhatsApp confirmation.
-    """
-    name = booking.get('name', 'User')
-    bid = booking.get('bookingId', 'N/A')
-    svc = booking.get('service', 'Service')
-    dt = booking.get('date', 'Date')
-    tm = booking.get('time', 'Time')
-    ph = booking.get('phone', 'N/A')
 
-    msg = f"Hi {name}, your Mothrly booking {bid} ({svc}) is confirmed for {dt} at {tm}. See you soon!"
-    print(f"\n--- [WHATSAPP MOCK] ---\nTo: {ph}\nMessage: {msg}\n-----------------------\n")
+def send_whatsapp_mock(booking: dict) -> None:
+    """Mock trigger for WhatsApp confirmation."""
+    name = booking.get("name", "User")
+    bid  = booking.get("bookingId", "N/A")
+    svc  = booking.get("service", "Service")
+    dt   = booking.get("date", "Date")
+    tm   = booking.get("time", "Time")
+    ph   = booking.get("phone", "N/A")
+    msg  = f"Hi {name}, your Mothrly booking {bid} ({svc}) is confirmed for {dt} at {tm}. See you soon!"
+    logger.info("[WHATSAPP MOCK] To: %s | Message: %s", ph, msg)
 
 
 # ── Validate booking description (LLM checks relevance) ─────────────
@@ -137,12 +151,19 @@ async def validate_description(request: ValidateDescriptionRequest):
     Check if the user's booking description is relevant and valid for the service.
     Used before finalizing the booking to reject off-topic or invalid responses.
     """
-    valid, message, redirect = validate_booking_description(request.description, request.service)
-    return ValidateDescriptionResponse(
-        valid=valid,
-        message=message if (not valid or redirect) else None,
-        redirect_service=redirect,
-    )
+    try:
+        valid, message, redirect = validate_booking_description(request.description, request.service)
+        return ValidateDescriptionResponse(
+            valid=valid,
+            message=message if (not valid or redirect) else None,
+            redirect_service=redirect,
+        )
+    except Exception:
+        logger.exception("Error in /validate-booking-description")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Validation service unavailable. Please try again."},
+        )
 
 
 # ── Chat endpoint ───────────────────────────────────────────────────
@@ -151,9 +172,19 @@ async def chat(request: ChatRequest):
     """
     Receive a user message and return Mothrly Assistant's AI-generated reply.
     """
-    history_dicts = [{"role": msg.role, "content": msg.content} for msg in (request.history or [])]
-    reply, tokens_used = get_chat_response(request.message, history_dicts)
-    return ChatResponse(response=reply, tokens_used=tokens_used)
+    try:
+        history_dicts = [
+            {"role": msg.role, "content": msg.content}
+            for msg in (request.history or [])
+        ]
+        reply, tokens_used = get_chat_response(request.message, history_dicts)
+        return ChatResponse(response=reply, tokens_used=tokens_used)
+    except Exception:
+        logger.exception("Error in /chat")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Chat service unavailable. Please try again."},
+        )
 
 
 # ── Booking endpoint ────────────────────────────────────────────────
@@ -163,58 +194,74 @@ async def book(request: BookingRequest):
     Receive a completed booking form, persist it, trigger confirmation stubs,
     and return a BookingResponse with a unique booking ID.
     """
-    booking_id = generate_booking_id()
-    created_at = datetime.utcnow().isoformat() + "Z"
+    try:
+        booking_id = generate_booking_id()
+        created_at = datetime.now(timezone.utc).isoformat()
 
-    booking_record = {
-        "bookingId":       booking_id,
-        "status":          "confirmed",
-        "provider":        "Will be assigned shortly",
-        "service":         request.service,
-        "date":            request.date,
-        "time":            request.time,
-        "location":        request.location,
-        "name":            request.name,
-        "phone":           request.phone,
-        "email":           request.email,
-        "forSelf":         request.forSelf,
-        "relation":        request.relation,
-        "description":     request.description,
-        "child_age_range": request.child_age_range,
-        "child_names":     request.child_names,
-        "createdAt":       created_at,
-    }
+        # Build record, omitting optional fields that are None
+        booking_record: dict = {
+            "bookingId": booking_id,
+            "status":    "confirmed",
+            "provider":  "Will be assigned shortly",
+            "service":   request.service,
+            "date":      request.date,
+            "time":      request.time,
+            "location":  request.location,
+            "name":      request.name,
+            "phone":     request.phone,
+            "email":     request.email,
+            "forSelf":   request.forSelf,
+            "relation":  request.relation,
+            "createdAt": created_at,
+        }
+        if request.description is not None:
+            booking_record["description"] = request.description
+        if request.child_age_range is not None:
+            booking_record["child_age_range"] = request.child_age_range
+        if request.child_names is not None:
+            booking_record["child_names"] = request.child_names
 
-    # Persist in memory
-    bookings[booking_id] = booking_record
+        bookings[booking_id] = booking_record
+        logger.info("[BOOKING] Created: %s  service=%s  name=%s", booking_id, request.service, request.name)
+        send_whatsapp_mock(booking_record)
 
-    # Log & trigger WhatsApp mock
-    print(f"[BOOKING] New booking created: {booking_record}")
-    send_whatsapp_mock(booking_record)
-
-    return BookingResponse(
-        bookingId  = booking_id,
-        status     = "confirmed",
-        provider   = "Will be assigned shortly",
-        service    = request.service,
-        date       = request.date,
-        time       = request.time,
-        location   = request.location,
-        name       = request.name,
-        message    = (
-            f"Your booking ({booking_id}) has been confirmed! "
-            "A Motherly care specialist will contact you shortly. "
-            "Confirmation has been sent via WhatsApp."
-        ),
-    )
+        return BookingResponse(
+            bookingId = booking_id,
+            status    = "confirmed",
+            provider  = "Will be assigned shortly",
+            service   = request.service,
+            date      = request.date,
+            time      = request.time,
+            location  = request.location,
+            name      = request.name,
+            message   = (
+                f"Your booking ({booking_id}) has been confirmed! "
+                "A Motherly care specialist will contact you shortly. "
+                "Confirmation has been sent via WhatsApp."
+            ),
+        )
+    except Exception:
+        logger.exception("Error in /book")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Booking service unavailable. Please try again."},
+        )
 
 
 # ── Serve the frontend ──────────────────────────────────────────────
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
+_INDEX_PATH = Path(FRONTEND_DIR) / "index.html"
+
 
 @app.get("/")
 async def serve_index():
-    return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
+    if not _INDEX_PATH.is_file():
+        return JSONResponse(
+            status_code=404,
+            content={"error": "Frontend not found. Ensure the frontend/ directory is present."},
+        )
+    return FileResponse(str(_INDEX_PATH))
+
 
 # Mount remaining static assets (CSS, JS, images)
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
@@ -222,5 +269,4 @@ app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

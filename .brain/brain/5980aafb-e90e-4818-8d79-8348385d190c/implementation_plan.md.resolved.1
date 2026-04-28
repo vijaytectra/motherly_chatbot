@@ -1,0 +1,30 @@
+# Implementation Plan — Project Isolation & Knowledge Cleanup
+
+The goal is to ensure that all "Hospital Chatbot" (MediBot) related knowledge and code are removed from the active **Mothrly Chat** workspace and the system's global knowledge base.
+
+## User Review Required
+
+> [!IMPORTANT]
+> - **Internal Knowledge Items (KIs)**: I have verified that the global knowledge directory (`.../knowledge`) is currently empty. No distilled knowledge items from the Hospital Chatbot project are "loaded" or present in the system registry.
+> - **Code Separation**: The Hospital Chatbot project is physically separate in `n:\tectra tech works\Hospital chatbot\MediCare`. This plan only affects the **Mothrly Chat** workspace.
+
+## Proposed Changes
+
+### [Mothrly Chat Workspace](file:///n:/tectra%20tech%20works/Mothrly%20Chat)
+
+I will purge any remaining artifacts or leftovers from the accidental project merger.
+
+#### [DELETE] [medibot.cpython-314.pyc](file:///n:/tectra%20tech%20works/Mothrly%20Chat/backend/__pycache__/medibot.cpython-314.pyc)
+Removing the leftover bytecode from the deleted `medibot.py` file.
+
+#### [MODIFY] [backend directory](file:///n:/tectra%20tech%20works/Mothrly%20Chat/backend/)
+I will scan for and remove any untracked or hidden files that reference Hospital Chatbot or MediBot logic.
+
+## Verification Plan
+
+### Automated Cleanup
+- I will run a final recursive search for "Hospital" and "MediBot" strings in the current workspace to ensure zero leakage.
+- I will verify that the global `knowledge/` directory remains clean.
+
+### Manual Verification
+- I will list the current `backend/` files to confirm only Motherly Chat components remain.

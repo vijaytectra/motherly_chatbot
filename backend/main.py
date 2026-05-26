@@ -42,7 +42,12 @@ app = FastAPI(
 # NOTE: Restrict allow_origins to specific domains before going to production.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allow_origins=[
+    "https://chatbot.mothrly.com",
+    "https://www.motherly.com",
+    "https://motherly.com",
+    "http://localhost:3000",
+],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

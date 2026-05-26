@@ -1,6 +1,0 @@
-{
-  "name": "mothrly-chat-frontend",
-  "private": true,
-  "version": "1.0.0",
-  "description": "Static chat widget for Vercel"
-}

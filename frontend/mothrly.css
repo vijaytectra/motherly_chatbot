@@ -34,6 +34,11 @@
     --sb-thumb-hover: #e8b4b5; /* Slightly darker than FCE4EC for better contrast */
     --sb-size: 5px;
 
+    /* Floating welcome tooltip */
+    --tooltip-bg: var(--primary-light);
+    --tooltip-text: var(--text-primary);
+    --tooltip-subtext: var(--text-secondary);
+
     /* Semantic */
     --online: #10B981;
     --success: #059669;
@@ -177,11 +182,12 @@ body {
 }
 
 .chat-tooltip-inner {
-    background: #374151;
-    color: #fff;
+    background: var(--tooltip-bg);
+    color: var(--tooltip-text);
     border-radius: 12px;
     padding: 12px 16px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 4px 16px rgba(155, 26, 82, 0.12);
+    border: 1px solid rgba(155, 26, 82, 0.15);
 }
 
 .chat-tooltip-title {
@@ -193,7 +199,7 @@ body {
 
 .chat-tooltip-cta {
     font-size: var(--fs-base);
-    color: #d1d5db;
+    color: var(--tooltip-subtext);
     margin: 0;
     line-height: 1.4;
 }
@@ -206,7 +212,7 @@ body {
     height: 0;
     border-left: 8px solid transparent;
     border-right: 8px solid transparent;
-    border-top: 10px solid #374151;
+    border-top: 10px solid var(--tooltip-bg);
 }
 
 @media (min-width: 480px) {

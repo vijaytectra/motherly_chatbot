@@ -1,0 +1,21 @@
+/* Import in app/globals.css: @import '../path/to/mothrly-widget.css'; */
+
+.mothrly-chat-embed {
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  width: min(420px, 100vw);
+  height: min(720px, 100dvh);
+  max-width: 100%;
+  border: none;
+  z-index: 99999;
+  background: transparent;
+  color-scheme: light;
+}
+
+@media (max-width: 480px) {
+  .mothrly-chat-embed {
+    width: 100vw;
+    height: 100dvh;
+  }
+}

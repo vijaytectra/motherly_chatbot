@@ -251,6 +251,7 @@ async def book(request: BookingRequest):
 # ── Serve the frontend ──────────────────────────────────────────────
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
 _INDEX_PATH = Path(FRONTEND_DIR) / "index.html"
+_EMBED_PATH = Path(FRONTEND_DIR) / "embed.html"
 
 
 @app.get("/")
@@ -261,6 +262,17 @@ async def serve_index():
             content={"error": "Frontend not found. Ensure the frontend/ directory is present."},
         )
     return FileResponse(str(_INDEX_PATH))
+
+
+@app.get("/embed")
+async def serve_embed():
+    """Widget-only page for iframe embed on external sites (e.g. Next.js)."""
+    if not _EMBED_PATH.is_file():
+        return JSONResponse(
+            status_code=404,
+            content={"error": "Embed page not found. Ensure frontend/embed.html exists."},
+        )
+    return FileResponse(str(_EMBED_PATH))
 
 
 # Mount remaining static assets (CSS, JS, images)

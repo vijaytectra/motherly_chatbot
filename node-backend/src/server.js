@@ -10,7 +10,7 @@ const app = express();
 // NOTE: Restrict origin to specific domains before going to production.
 app.use(
   cors({
-    origin: '*',
+    origin: ['https://www.motherly.com', 'https://motherly.com', 'http://localhost:3000'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   })

@@ -1,17 +1,11 @@
-# Navigate to the node-backend directory
 cd "n:\tectra tech works\Mothrly Chat\node-backend"
-
-# Start the development server
 npm run dev
 
-# Navigate to the main backend directory
 cd "n:\tectra tech works\Mothrly Chat\backend"
 .\.venv\Scripts\activate
-# Start the FastAPI server
 python main.py
 
-after 
-p
+
 Use this exact order from your project root:
 
 cd "C:\Users\nithi\Desktop\TECTRA\Mothrly-Chat"

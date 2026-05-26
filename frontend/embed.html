@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mothrly Chat Widget</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/mothrly.css?v=70" />
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: transparent !important;
+            overflow: hidden;
+            min-height: 0;
+            height: 100%;
+        }
+        .page-content { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="floating-chat">
+        <div id="chat-tooltip" class="chat-tooltip" aria-hidden="true">
+            <div class="chat-tooltip-inner">
+                <p class="chat-tooltip-title">Welcome to Mothrly!</p>
+                <p class="chat-tooltip-cta">Use Mothrly Assistant to book services immediately.</p>
+            </div>
+            <div class="chat-tooltip-arrow" aria-hidden="true"></div>
+        </div>
+
+        <button type="button" id="chat-fab" class="chat-fab" title="Open Mothrly Assistant" aria-label="Open chat">
+            <svg class="chat-fab-icon" xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+        </button>
+
+        <div class="chat-wrapper chat-panel chat-panel--closed" id="chat-panel">
+            <header class="chat-header">
+                <div class="header-left" style="display: flex; align-items: center; gap: 8px;">
+                    <div class="header-avatar">
+                        <img src="/static/motherly_logo_v3.png" alt="Mothrly" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
+                        <span class="online-ring"></span>
+                    </div>
+                </div>
+                <div class="header-center">
+                    <h1>Mothrly Assistant</h1>
+                    <p class="subtitle" id="step-label">Your maternal care assistant</p>
+                </div>
+                <div class="header-actions" style="display:flex; align-items:center; gap:6px;">
+                    <button id="btn-reset" title="Reset chat" onclick="resetChat()" style="background:rgba(255,255,255,0.18); border:none; color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:8px;">
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none"><polyline points="3 6 5 6 21 6"></polyline><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"></path><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6"></path></svg>
+                    </button>
+                    <button id="btn-minimize" title="Resume session" onclick="resumeSession()" style="background:rgba(255,255,255,0.18); border:none; color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:8px;">
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 .49-4"></path></svg>
+                    </button>
+                    <button type="button" id="btn-close" title="Close chat" onclick="closeChat()" style="background:rgba(255,255,255,0.18); border:none; color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:8px;">
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+                </div>
+            </header>
+            <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+            <main class="chat-messages" id="chat-messages"></main>
+            <div class="typing-indicator" id="typing-indicator">
+                <div class="typing-avatar" style="background:#fff;border:1px solid #E5E7EB;overflow:hidden;padding:0;">
+                    <img src="/static/motherly_logo_v3.png" alt="Mothrly" style="width:100%;height:100%;object-fit:cover;">
+                </div>
+                <div class="typing-bubble"><span></span><span></span><span></span></div>
+            </div>
+            <div class="quick-actions-bar" id="quick-actions-bar" aria-label="Quick actions"></div>
+            <footer class="chat-input-bar">
+                <div class="input-wrapper">
+                    <input type="text" id="user-input" class="chat-input" placeholder="Start chatting..." autocomplete="off" />
+                    <button class="icon-button mic-button" aria-label="Voice input" title="Voice input">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
+                    </button>
+                    <button id="send-btn" class="icon-button send-button" aria-label="Send message">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                    </button>
+                </div>
+            </footer>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/moment@2.30.1/min/moment.min.js"></script>
+    <script>
+        window.__MOTHRLY_CONFIG__ = Object.assign({}, window.__MOTHRLY_CONFIG__ || {});
+    </script>
+    <script src="/static/script.js?v=70"></script>
+</body>
+</html>

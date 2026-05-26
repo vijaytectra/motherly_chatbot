@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "framework": null,
+  "buildCommand": null,
+  "outputDirectory": ".",
+  "rewrites": [
+    { "source": "/embed", "destination": "/embed.html" },
+    { "source": "/static/(.*)", "destination": "/$1" }
+  ]
+}
